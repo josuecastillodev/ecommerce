@@ -23,6 +23,10 @@ export default defineConfig({
     {
       resolve: "./src/modules/brand",
     },
+    // Custom Category module
+    {
+      resolve: "./src/modules/category",
+    },
     // Payment module - Stripe
     {
       resolve: "@medusajs/medusa/payment",

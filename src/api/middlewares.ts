@@ -87,6 +87,41 @@ const listProductsQuerySchema = z.object({
 
 const storeProductsQuerySchema = listProductsQuerySchema.omit({ status: true })
 
+// Category validation schemas
+const createCategorySchema = z.object({
+  name: z.string().min(1, "Name is required").max(100),
+  slug: z.string().regex(/^[a-z0-9-]+$/).max(100).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  image_url: z.string().url().nullable().optional(),
+  parent_id: z.string().nullable().optional(),
+  brand_id: z.string().nullable().optional(),
+  position: z.number().int().min(0).optional(),
+  is_active: z.boolean().default(true),
+  metadata: z.record(z.unknown()).nullable().optional(),
+})
+
+const updateCategorySchema = createCategorySchema.partial().omit({ brand_id: true })
+
+const listCategoriesQuerySchema = z.object({
+  brand_id: z.string().optional(),
+  parent_id: z.string().nullable().optional(),
+  is_active: z.enum(["true", "false", "all"]).optional(),
+  search: z.string().optional(),
+  tree: z.enum(["true", "false"]).default("false"),
+  include_global: z.enum(["true", "false"]).default("true"),
+  offset: z.coerce.number().min(0).default(0),
+  limit: z.coerce.number().min(1).max(100).default(50),
+})
+
+const reorderCategoriesSchema = z.object({
+  category_ids: z.array(z.string()).min(1),
+  parent_id: z.string().nullable().optional(),
+})
+
+const moveCategorySchema = z.object({
+  new_parent_id: z.string().nullable(),
+})
+
 export default defineMiddlewares({
   routes: [
     // ==================
@@ -187,6 +222,70 @@ export default defineMiddlewares({
       method: "GET",
       middlewares: [
         validateAndTransformQuery(storeProductsQuerySchema),
+      ],
+    },
+
+    // ======================
+    // Admin Category Routes
+    // ======================
+    {
+      matcher: "/admin/categories",
+      method: "POST",
+      middlewares: [
+        validateAndTransformBody(createCategorySchema),
+      ],
+    },
+    {
+      matcher: "/admin/categories",
+      method: "GET",
+      middlewares: [
+        validateAndTransformQuery(listCategoriesQuerySchema),
+      ],
+    },
+    {
+      matcher: "/admin/categories/:id",
+      method: "POST",
+      middlewares: [
+        validateAndTransformBody(updateCategorySchema),
+      ],
+    },
+    {
+      matcher: "/admin/categories/:id/move",
+      method: "POST",
+      middlewares: [
+        validateAndTransformBody(moveCategorySchema),
+      ],
+    },
+    {
+      matcher: "/admin/categories/reorder",
+      method: "POST",
+      middlewares: [
+        validateAndTransformBody(reorderCategoriesSchema),
+      ],
+    },
+
+    // ======================
+    // Store Category Routes
+    // ======================
+    {
+      matcher: "/store/categories",
+      method: "GET",
+      middlewares: [
+        validateAndTransformQuery(listCategoriesQuerySchema),
+      ],
+    },
+    {
+      matcher: "/store/categories/:slug/products",
+      method: "GET",
+      middlewares: [
+        validateAndTransformQuery(
+          z.object({
+            brand_id: z.string().optional(),
+            offset: z.coerce.number().min(0).default(0),
+            limit: z.coerce.number().min(1).max(100).default(20),
+            include_subcategories: z.enum(["true", "false"]).default("true"),
+          })
+        ),
       ],
     },
   ],

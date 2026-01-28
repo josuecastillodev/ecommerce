@@ -1,13 +1,16 @@
 import type { ExecArgs } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { BRAND_MODULE } from "../modules/brand"
+import { CATEGORY_MODULE } from "../modules/category"
 import type BrandModuleService from "../modules/brand/service"
+import type CategoryModuleService from "../modules/category/service"
 import { createProductWithBrandWorkflow } from "../workflows/create-product-with-brand"
 import type { CreateProductWithBrandInput } from "../modules/product-extension/types"
 
 export default async function seed({ container }: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
   const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
+  const categoryService: CategoryModuleService = container.resolve(CATEGORY_MODULE)
 
   logger.info("Starting seed process...")
 
@@ -59,7 +62,175 @@ export default async function seed({ container }: ExecArgs) {
   }
 
   // ==================
-  // 2. Create Products
+  // 2. Create Categories
+  // ==================
+  logger.info("Seeding categories...")
+
+  const categories: Record<string, any> = {}
+
+  // Global categories (shared across all brands)
+  const globalCategoriesData = [
+    {
+      name: "Playeras",
+      slug: "playeras",
+      description: "Todo tipo de playeras y camisetas",
+      brand_id: null,
+      position: 0,
+    },
+    {
+      name: "Polos",
+      slug: "polos",
+      description: "Polos clásicos y modernos",
+      brand_id: null,
+      position: 1,
+    },
+    {
+      name: "Edición Limitada",
+      slug: "edicion-limitada",
+      description: "Productos de edición limitada",
+      brand_id: null,
+      position: 2,
+    },
+  ]
+
+  // Create global categories
+  for (const catData of globalCategoriesData) {
+    let category = await categoryService.findBySlug(catData.slug, null)
+
+    if (!category) {
+      category = await categoryService.createCategories({
+        ...catData,
+        is_active: true,
+      })
+      logger.info(`Created global category: ${catData.name}`)
+    } else {
+      logger.info(`Global category already exists: ${catData.name}`)
+    }
+
+    categories[catData.slug] = category
+  }
+
+  // Subcategories for "Playeras"
+  const playerasSubcategories = [
+    {
+      name: "Manga Corta",
+      slug: "manga-corta",
+      description: "Playeras de manga corta",
+      parent_id: categories["playeras"].id,
+      brand_id: null,
+      position: 0,
+    },
+    {
+      name: "Manga Larga",
+      slug: "manga-larga",
+      description: "Playeras de manga larga",
+      parent_id: categories["playeras"].id,
+      brand_id: null,
+      position: 1,
+    },
+    {
+      name: "Sin Mangas",
+      slug: "sin-mangas",
+      description: "Playeras sin mangas / tank tops",
+      parent_id: categories["playeras"].id,
+      brand_id: null,
+      position: 2,
+    },
+  ]
+
+  for (const catData of playerasSubcategories) {
+    let category = await categoryService.findBySlug(catData.slug, null)
+
+    if (!category) {
+      category = await categoryService.createCategories({
+        ...catData,
+        is_active: true,
+      })
+      logger.info(`Created subcategory: ${catData.name}`)
+    } else {
+      logger.info(`Subcategory already exists: ${catData.name}`)
+    }
+
+    categories[catData.slug] = category
+  }
+
+  // Brand-specific categories for Urban Street
+  const urbanStreetCategories = [
+    {
+      name: "Streetwear",
+      slug: "streetwear",
+      description: "Colección streetwear exclusiva",
+      brand_id: brands["urban-street"].id,
+      position: 0,
+    },
+    {
+      name: "Colaboraciones",
+      slug: "colaboraciones",
+      description: "Colaboraciones con artistas urbanos",
+      brand_id: brands["urban-street"].id,
+      position: 1,
+    },
+  ]
+
+  for (const catData of urbanStreetCategories) {
+    let category = await categoryService.findBySlug(catData.slug, catData.brand_id)
+
+    if (!category) {
+      category = await categoryService.createCategories({
+        ...catData,
+        is_active: true,
+      })
+      logger.info(`Created Urban Street category: ${catData.name}`)
+    } else {
+      logger.info(`Urban Street category already exists: ${catData.name}`)
+    }
+
+    categories[`urban-${catData.slug}`] = category
+  }
+
+  // Brand-specific categories for Classic Threads
+  const classicThreadsCategories = [
+    {
+      name: "Casual",
+      slug: "casual",
+      description: "Ropa casual para el día a día",
+      brand_id: brands["classic-threads"].id,
+      position: 0,
+    },
+    {
+      name: "Formal",
+      slug: "formal",
+      description: "Piezas para ocasiones formales",
+      brand_id: brands["classic-threads"].id,
+      position: 1,
+    },
+    {
+      name: "Esenciales",
+      slug: "esenciales",
+      description: "Básicos que no pueden faltar",
+      brand_id: brands["classic-threads"].id,
+      position: 2,
+    },
+  ]
+
+  for (const catData of classicThreadsCategories) {
+    let category = await categoryService.findBySlug(catData.slug, catData.brand_id)
+
+    if (!category) {
+      category = await categoryService.createCategories({
+        ...catData,
+        is_active: true,
+      })
+      logger.info(`Created Classic Threads category: ${catData.name}`)
+    } else {
+      logger.info(`Classic Threads category already exists: ${catData.name}`)
+    }
+
+    categories[`classic-${catData.slug}`] = category
+  }
+
+  // ==================
+  // 3. Create Products
   // ==================
   logger.info("Seeding products...")
 
@@ -69,9 +240,10 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["urban-street"].id,
       title: "Camiseta Grafitti",
       description: "Camiseta de algodón premium con estampado de grafitti exclusivo. Perfecta para un look urbano y desenfadado.",
-      base_price: 45000, // 450.00 MXN (prices in cents)
+      base_price: 45000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["playeras"].id, categories["manga-corta"].id, categories["urban-streetwear"].id],
       variants: [
         { size: "S", color: { name: "Negro", hex_code: "#000000" }, stock: 25 },
         { size: "M", color: { name: "Negro", hex_code: "#000000" }, stock: 30 },
@@ -90,6 +262,7 @@ export default async function seed({ container }: ExecArgs) {
       base_price: 52000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["playeras"].id, categories["urban-streetwear"].id],
       variants: [
         { size: "M", color: { name: "Gris Oscuro", hex_code: "#333333" }, stock: 40 },
         { size: "L", color: { name: "Gris Oscuro", hex_code: "#333333" }, stock: 35 },
@@ -108,6 +281,7 @@ export default async function seed({ container }: ExecArgs) {
       base_price: 65000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["playeras"].id, categories["edicion-limitada"].id, categories["urban-colaboraciones"].id],
       variants: [
         { size: "XS", color: { name: "Negro", hex_code: "#000000" }, stock: 10 },
         { size: "S", color: { name: "Negro", hex_code: "#000000" }, stock: 15 },
@@ -125,6 +299,7 @@ export default async function seed({ container }: ExecArgs) {
       base_price: 68000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["polos"].id, categories["classic-formal"].id],
       variants: [
         { size: "S", color: { name: "Azul Marino", hex_code: "#1A237E" }, stock: 20 },
         { size: "M", color: { name: "Azul Marino", hex_code: "#1A237E" }, stock: 30 },
@@ -147,6 +322,7 @@ export default async function seed({ container }: ExecArgs) {
       base_price: 42000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["playeras"].id, categories["manga-corta"].id, categories["classic-esenciales"].id],
       variants: [
         { size: "XS", color: { name: "Blanco", hex_code: "#FFFFFF" }, stock: 50 },
         { size: "S", color: { name: "Blanco", hex_code: "#FFFFFF" }, stock: 60 },
@@ -169,6 +345,7 @@ export default async function seed({ container }: ExecArgs) {
       base_price: 55000,
       currency_code: "MXN",
       status: "published",
+      category_ids: [categories["playeras"].id, categories["classic-casual"].id],
       variants: [
         { size: "S", color: { name: "Beige", hex_code: "#F5F5DC" }, stock: 20 },
         { size: "M", color: { name: "Beige", hex_code: "#F5F5DC" }, stock: 30 },
@@ -199,4 +376,8 @@ export default async function seed({ container }: ExecArgs) {
   }
 
   logger.info("Seed process completed!")
+  logger.info(`Summary:`)
+  logger.info(`  - Brands: ${Object.keys(brands).length}`)
+  logger.info(`  - Categories: ${Object.keys(categories).length}`)
+  logger.info(`  - Products: ${productsData.length}`)
 }
