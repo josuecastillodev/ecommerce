@@ -27,6 +27,10 @@ export default defineConfig({
     {
       resolve: "./src/modules/category",
     },
+    // Custom Customer-Brand association module
+    {
+      resolve: "./src/modules/customer-brand",
+    },
     // Payment module - Stripe Mexico (Cards + OXXO Pay)
     {
       resolve: "@medusajs/medusa/payment",
