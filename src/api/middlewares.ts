@@ -122,18 +122,6 @@ const moveCategorySchema = z.object({
   new_parent_id: z.string().nullable(),
 })
 
-// Payment validation schemas
-const createPaymentIntentSchema = z.object({
-  cart_id: z.string().min(1, "Cart ID is required"),
-  payment_method_type: z.enum(["card", "oxxo"]).default("card"),
-  customer_email: z.string().email().optional(),
-  customer_name: z.string().optional(),
-})
-
-const paymentMethodsQuerySchema = z.object({
-  amount: z.coerce.number().min(0).optional(),
-})
-
 // Customer validation schemas
 const customerRegistrationSchema = z.object({
   email: z.string().email("El email debe ser válido").min(1, "El email es requerido"),
@@ -416,24 +404,6 @@ export default defineMiddlewares({
             include_subcategories: z.enum(["true", "false"]).default("true"),
           })
         ),
-      ],
-    },
-
-    // ======================
-    // Store Payment Routes
-    // ======================
-    {
-      matcher: "/store/payments/stripe",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(paymentMethodsQuerySchema),
-      ],
-    },
-    {
-      matcher: "/store/payments/stripe",
-      method: "POST",
-      middlewares: [
-        validateAndTransformBody(createPaymentIntentSchema),
       ],
     },
 

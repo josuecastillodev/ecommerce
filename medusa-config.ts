@@ -31,19 +31,21 @@ export default defineConfig({
     {
       resolve: "./src/modules/customer-brand",
     },
-    // Payment module - Stripe Mexico (Cards + OXXO Pay)
+    // Payment module - Stripe (Cards + OXXO Pay for Mexico)
     {
       resolve: "@medusajs/medusa/payment",
       options: {
         providers: [
-          // Custom Stripe provider for Mexico with OXXO support
+          // Official Stripe provider. Registering it enables all its
+          // sub-providers, including "stripe" (cards) and "stripe-oxxo".
           {
-            resolve: "./src/modules/stripe-payment",
-            id: "stripe-mexico",
+            resolve: "@medusajs/payment-stripe",
+            id: "stripe",
             options: {
               apiKey: process.env.STRIPE_API_KEY,
               webhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
-              capture: true, // Auto-capture payments
+              capture: true,
+              oxxoExpiresDays: 3,
             },
           },
         ],
