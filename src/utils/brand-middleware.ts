@@ -1,6 +1,8 @@
 import { MedusaRequest, MedusaResponse, MedusaNextFunction } from "@medusajs/framework/http"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
 import { BRAND_MODULE } from "../modules/brand"
+import type BrandModuleService from "../modules/brand/service"
+import type CustomerBrandModuleService from "../modules/customer-brand/service"
 
 /**
  * Extract brand_id from request
@@ -48,7 +50,7 @@ export function requireBrandId() {
     }
 
     // Validate that brand exists and is active
-    const brandService = req.scope.resolve(BRAND_MODULE)
+    const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
     try {
       const [brand] = await brandService.listBrands({ id: brandId })
 
@@ -93,21 +95,20 @@ export function validateCustomerBrand() {
     const brandId = extractBrandId(req)
     const customerId = (req as any).auth_context?.actor_id
 
+    // Authentication is enforced by Medusa's native customer auth middleware.
+    // If it hasn't run / rejected yet, let the request continue to it.
     if (!customerId) {
-      return res.status(401).json({
-        type: "unauthorized",
-        message: "No autenticado.",
-      })
+      return next()
     }
 
     if (!brandId) {
       return res.status(400).json({
         type: "invalid_request",
-        message: "Se requiere brand_id.",
+        message: "Se requiere el header X-Brand-Id.",
       })
     }
 
-    const customerBrandService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
+    const customerBrandService: CustomerBrandModuleService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
 
     try {
       const belongsToBrand = await customerBrandService.customerBelongsToBrand(
@@ -149,7 +150,7 @@ export function validateCartBrandAccess() {
       return next()
     }
 
-    const customerBrandService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
+    const customerBrandService: CustomerBrandModuleService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
 
     try {
       const customerBrandId = await customerBrandService.getCustomerBrandId(customerId)
@@ -184,7 +185,7 @@ export function optionalBrandId() {
     const brandId = extractBrandId(req)
 
     if (brandId) {
-      const brandService = req.scope.resolve(BRAND_MODULE)
+      const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
       try {
         const [brand] = await brandService.listBrands({ id: brandId })
         if (brand) {

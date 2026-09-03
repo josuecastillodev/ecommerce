@@ -1,6 +1,7 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
+import { validateCustomerBrand } from "../utils/brand-middleware"
 
 // Brand validation schemas
 const createBrandSchema = z.object({
@@ -122,122 +123,11 @@ const moveCategorySchema = z.object({
   new_parent_id: z.string().nullable(),
 })
 
-// Customer validation schemas
-const customerRegistrationSchema = z.object({
-  email: z.string().email("El email debe ser válido").min(1, "El email es requerido"),
-  password: z
-    .string()
-    .min(8, "La contraseña debe tener al menos 8 caracteres")
-    .regex(
-      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
-      "La contraseña debe contener al menos una mayúscula, una minúscula y un número"
-    ),
-  first_name: z
-    .string()
-    .min(2, "El nombre debe tener al menos 2 caracteres")
-    .max(100, "El nombre no puede exceder 100 caracteres"),
-  last_name: z
-    .string()
-    .min(2, "El apellido debe tener al menos 2 caracteres")
-    .max(100, "El apellido no puede exceder 100 caracteres"),
-  phone: z
-    .string()
-    .regex(/^\+?[1-9]\d{9,14}$/, "El teléfono debe ser válido (ej: +525512345678)")
-    .optional(),
-  brand_id: z.string().min(1, "El brand_id es requerido"),
-  marketing_consent: z.boolean().optional().default(false),
-})
-
-const customerLoginSchema = z.object({
-  email: z.string().email("El email debe ser válido").min(1, "El email es requerido"),
-  password: z.string().min(1, "La contraseña es requerida"),
-  brand_id: z.string().min(1, "El brand_id es requerido"),
-})
-
-const updateCustomerProfileSchema = z.object({
-  first_name: z
-    .string()
-    .min(2, "El nombre debe tener al menos 2 caracteres")
-    .max(100, "El nombre no puede exceder 100 caracteres")
-    .optional(),
-  last_name: z
-    .string()
-    .min(2, "El apellido debe tener al menos 2 caracteres")
-    .max(100, "El apellido no puede exceder 100 caracteres")
-    .optional(),
-  phone: z
-    .string()
-    .regex(/^\+?[1-9]\d{9,14}$/, "El teléfono debe ser válido")
-    .nullable()
-    .optional(),
+// Per-brand customer preferences (POST /store/customers/me/brand)
+const brandPreferencesSchema = z.object({
   marketing_consent: z.boolean().optional(),
   language_preference: z.enum(["es", "en"]).optional(),
   metadata: z.record(z.unknown()).optional(),
-})
-
-const createAddressSchema = z.object({
-  first_name: z
-    .string()
-    .min(2, "El nombre debe tener al menos 2 caracteres")
-    .max(100, "El nombre no puede exceder 100 caracteres"),
-  last_name: z
-    .string()
-    .min(2, "El apellido debe tener al menos 2 caracteres")
-    .max(100, "El apellido no puede exceder 100 caracteres"),
-  address_1: z
-    .string()
-    .min(5, "La dirección debe tener al menos 5 caracteres")
-    .max(255, "La dirección no puede exceder 255 caracteres"),
-  address_2: z.string().max(255).optional(),
-  city: z
-    .string()
-    .min(2, "La ciudad debe tener al menos 2 caracteres")
-    .max(100, "La ciudad no puede exceder 100 caracteres"),
-  province: z.string().max(100).optional(),
-  postal_code: z.string().regex(/^\d{5}$/, "El código postal debe tener 5 dígitos"),
-  country_code: z.string().length(2).default("MX"),
-  phone: z
-    .string()
-    .regex(/^\+?[1-9]\d{9,14}$/, "El teléfono debe ser válido")
-    .optional(),
-  company: z.string().max(100).optional(),
-  is_default_shipping: z.boolean().optional().default(false),
-  is_default_billing: z.boolean().optional().default(false),
-  metadata: z.record(z.unknown()).optional(),
-})
-
-const updateAddressSchema = createAddressSchema.partial()
-
-const bulkUpdateAddressesSchema = z.object({
-  addresses: z.array(
-    z.object({
-      id: z.string().min(1),
-      first_name: z.string().min(2).max(100).optional(),
-      last_name: z.string().min(2).max(100).optional(),
-      address_1: z.string().min(5).max(255).optional(),
-      address_2: z.string().max(255).nullable().optional(),
-      city: z.string().min(2).max(100).optional(),
-      province: z.string().max(100).nullable().optional(),
-      postal_code: z.string().regex(/^\d{5}$/).optional(),
-      country_code: z.string().length(2).optional(),
-      phone: z.string().regex(/^\+?[1-9]\d{9,14}$/).nullable().optional(),
-      company: z.string().max(100).nullable().optional(),
-      is_default_shipping: z.boolean().optional(),
-      is_default_billing: z.boolean().optional(),
-      metadata: z.record(z.unknown()).optional(),
-    })
-  ).min(1, "Se requiere al menos una dirección"),
-})
-
-const listCustomersQuerySchema = z.object({
-  offset: z.coerce.number().min(0).default(0),
-  limit: z.coerce.number().min(1).max(100).default(20),
-})
-
-const listOrdersQuerySchema = z.object({
-  offset: z.coerce.number().min(0).default(0),
-  limit: z.coerce.number().min(1).max(50).default(10),
-  status: z.string().optional(),
 })
 
 export default defineMiddlewares({
@@ -408,63 +298,31 @@ export default defineMiddlewares({
     },
 
     // =======================
-    // Store Customer Routes
+    // Store Customer Routes (brand layer over Medusa's native auth)
     // =======================
-    {
-      matcher: "/store/customers",
-      method: "POST",
-      middlewares: [
-        validateAndTransformBody(customerRegistrationSchema),
-      ],
-    },
-    {
-      matcher: "/store/customers",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(listCustomersQuerySchema),
-      ],
-    },
-    {
-      matcher: "/store/auth",
-      method: "POST",
-      middlewares: [
-        validateAndTransformBody(customerLoginSchema),
-      ],
-    },
+    // Enforce that the authenticated customer belongs to the brand in the
+    // X-Brand-Id header on every authenticated storefront surface.
     {
       matcher: "/store/customers/me",
-      method: "PUT",
-      middlewares: [
-        validateAndTransformBody(updateCustomerProfileSchema),
-      ],
+      middlewares: [validateCustomerBrand()],
     },
     {
-      matcher: "/store/customers/me/addresses",
+      matcher: "/store/customers/me/*",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      matcher: "/store/orders",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      matcher: "/store/orders/*",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      // validateCustomerBrand() already applies via "/store/customers/me/*"
+      matcher: "/store/customers/me/brand",
       method: "POST",
-      middlewares: [
-        validateAndTransformBody(createAddressSchema),
-      ],
-    },
-    {
-      matcher: "/store/customers/me/addresses",
-      method: "PUT",
-      middlewares: [
-        validateAndTransformBody(bulkUpdateAddressesSchema),
-      ],
-    },
-    {
-      matcher: "/store/customers/me/addresses/:id",
-      method: "PUT",
-      middlewares: [
-        validateAndTransformBody(updateAddressSchema),
-      ],
-    },
-    {
-      matcher: "/store/customers/me/orders",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(listOrdersQuerySchema),
-      ],
+      middlewares: [validateAndTransformBody(brandPreferencesSchema)],
     },
   ],
 })
