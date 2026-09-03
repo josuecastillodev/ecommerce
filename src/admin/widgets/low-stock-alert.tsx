@@ -165,7 +165,7 @@ const LowStockAlertWidget = () => {
 }
 
 export const config = defineWidgetConfig({
-  zone: "home.after",
+  zone: "product.list.after",
 })
 
 export default LowStockAlertWidget

@@ -85,7 +85,7 @@ const BrandSelectorWidget = () => {
 }
 
 export const config = defineWidgetConfig({
-  zone: "nav.top.before",
+  zone: "product.list.before",
 })
 
 export default BrandSelectorWidget
