@@ -17,7 +17,7 @@ const createBrandSchema = z.object({
   secondary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
   description: z.string().optional().nullable(),
   active: z.boolean().optional(),
-  metadata: z.record(z.unknown()).optional().nullable(),
+  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
 })
 
 const updateBrandSchema = createBrandSchema.partial()
@@ -57,7 +57,7 @@ const createProductSchema = z.object({
   category_ids: z.array(z.string()).optional(),
   variants: z.array(variantSchema).min(1, "At least one variant is required"),
   status: z.enum(["draft", "published"]).default("draft"),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const updateProductSchema = z.object({
@@ -69,7 +69,7 @@ const updateProductSchema = z.object({
   base_price: z.number().positive().optional(),
   category_ids: z.array(z.string()).optional(),
   status: z.enum(["draft", "published"]).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 const addVariantSchema = z.object({
@@ -103,7 +103,7 @@ const createCategorySchema = z.object({
   brand_id: z.string().nullable().optional(),
   position: z.number().int().min(0).optional(),
   is_active: z.boolean().default(true),
-  metadata: z.record(z.unknown()).nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 const updateCategorySchema = createCategorySchema.partial().omit({ brand_id: true })
@@ -132,7 +132,7 @@ const moveCategorySchema = z.object({
 const brandPreferencesSchema = z.object({
   marketing_consent: z.boolean().optional(),
   language_preference: z.enum(["es", "en"]).optional(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export default defineMiddlewares({

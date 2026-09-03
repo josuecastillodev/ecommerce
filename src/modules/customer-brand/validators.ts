@@ -82,7 +82,7 @@ export const UpdateCustomerProfileSchema = z.object({
     .enum(["es", "en"])
     .optional(),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional(),
 })
 
@@ -141,7 +141,7 @@ export const CreateAddressSchema = z.object({
     .optional()
     .default(false),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional(),
 })
 
@@ -206,7 +206,7 @@ export const UpdateAddressSchema = z.object({
     .boolean()
     .optional(),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional(),
 })
 
@@ -215,10 +215,10 @@ export type UpdateAddressInput = z.infer<typeof UpdateAddressSchema>
 /**
  * Validate request body helper
  */
-export function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): T {
+export function validateRequest<T>(schema: z.ZodType<T>, data: unknown): T {
   const result = schema.safeParse(data)
   if (!result.success) {
-    const errors = result.error.errors.map((e) => ({
+    const errors = result.error.issues.map((e) => ({
       field: e.path.join("."),
       message: e.message,
     }))
