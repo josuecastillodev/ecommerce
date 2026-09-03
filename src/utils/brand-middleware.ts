@@ -1,6 +1,6 @@
 import { MedusaRequest, MedusaResponse, MedusaNextFunction } from "@medusajs/framework/http"
-import { CUSTOMER_BRAND_MODULE } from "../../modules/customer-brand"
-import { BRAND_MODULE } from "../../modules/brand"
+import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
+import { BRAND_MODULE } from "../modules/brand"
 
 /**
  * Extract brand_id from request
