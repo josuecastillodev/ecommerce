@@ -208,8 +208,10 @@ export const createProductWithBrandWorkflow = createWorkflow(
       }
     )
 
-    // Step 5: Create product using core workflow
-    const { result: products } = createProductsWorkflow.runAsStep({
+    // Step 5: Create product using core workflow.
+    // runAsStep() returns the workflow's response value directly (the product
+    // array), not a { result } wrapper.
+    const products = createProductsWorkflow.runAsStep({
       input: {
         products: [medusaProductInput],
       },

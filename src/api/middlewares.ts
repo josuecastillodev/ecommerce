@@ -1,6 +1,12 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
+import { validateCustomerBrand } from "../utils/brand-middleware"
+
+// Medusa's validateAndTransformQuery requires a queryConfig object as its
+// second argument. These custom routes run their own query.graph with explicit
+// fields, so a minimal list config is all that's needed to avoid the crash.
+const LIST_QUERY_CONFIG = { isList: true } as const
 
 // Brand validation schemas
 const createBrandSchema = z.object({
@@ -122,6 +128,13 @@ const moveCategorySchema = z.object({
   new_parent_id: z.string().nullable(),
 })
 
+// Per-brand customer preferences (POST /store/customers/me/brand)
+const brandPreferencesSchema = z.object({
+  marketing_consent: z.boolean().optional(),
+  language_preference: z.enum(["es", "en"]).optional(),
+  metadata: z.record(z.unknown()).optional(),
+})
+
 export default defineMiddlewares({
   routes: [
     // ==================
@@ -138,7 +151,7 @@ export default defineMiddlewares({
       matcher: "/admin/brands",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listBrandsQuerySchema),
+        validateAndTransformQuery(listBrandsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -163,7 +176,7 @@ export default defineMiddlewares({
       matcher: "/admin/products",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listProductsQuerySchema),
+        validateAndTransformQuery(listProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -192,8 +205,7 @@ export default defineMiddlewares({
           z.object({
             offset: z.coerce.number().optional(),
             limit: z.coerce.number().optional(),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -209,8 +221,7 @@ export default defineMiddlewares({
             max_price: z.coerce.number().min(0).optional(),
             sizes: z.string().optional(),
             in_stock: z.enum(["true", "false"]).optional(),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
     },
 
@@ -221,7 +232,7 @@ export default defineMiddlewares({
       matcher: "/store/products",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(storeProductsQuerySchema),
+        validateAndTransformQuery(storeProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
 
@@ -239,7 +250,7 @@ export default defineMiddlewares({
       matcher: "/admin/categories",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listCategoriesQuerySchema),
+        validateAndTransformQuery(listCategoriesQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -271,7 +282,7 @@ export default defineMiddlewares({
       matcher: "/store/categories",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listCategoriesQuerySchema),
+        validateAndTransformQuery(listCategoriesQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -284,9 +295,36 @@ export default defineMiddlewares({
             offset: z.coerce.number().min(0).default(0),
             limit: z.coerce.number().min(1).max(100).default(20),
             include_subcategories: z.enum(["true", "false"]).default("true"),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
+    },
+
+    // =======================
+    // Store Customer Routes (brand layer over Medusa's native auth)
+    // =======================
+    // Enforce that the authenticated customer belongs to the brand in the
+    // X-Brand-Id header on every authenticated storefront surface.
+    {
+      matcher: "/store/customers/me",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      matcher: "/store/customers/me/*",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      matcher: "/store/orders",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      matcher: "/store/orders/*",
+      middlewares: [validateCustomerBrand()],
+    },
+    {
+      // validateCustomerBrand() already applies via "/store/customers/me/*"
+      matcher: "/store/customers/me/brand",
+      method: "POST",
+      middlewares: [validateAndTransformBody(brandPreferencesSchema)],
     },
   ],
 })

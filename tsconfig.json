@@ -23,7 +23,11 @@
     "noImplicitAny": true,
     "strictNullChecks": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": false
+    "noUnusedParameters": false,
+    "jsx": "react-jsx"
+  },
+  "ts-node": {
+    "swc": true
   },
   "include": [
     "src/**/*",
