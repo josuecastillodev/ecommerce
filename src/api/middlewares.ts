@@ -3,6 +3,11 @@ import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
 import { validateCustomerBrand } from "../utils/brand-middleware"
 
+// Medusa's validateAndTransformQuery requires a queryConfig object as its
+// second argument. These custom routes run their own query.graph with explicit
+// fields, so a minimal list config is all that's needed to avoid the crash.
+const LIST_QUERY_CONFIG = { isList: true } as const
+
 // Brand validation schemas
 const createBrandSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -146,7 +151,7 @@ export default defineMiddlewares({
       matcher: "/admin/brands",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listBrandsQuerySchema),
+        validateAndTransformQuery(listBrandsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -171,7 +176,7 @@ export default defineMiddlewares({
       matcher: "/admin/products",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listProductsQuerySchema),
+        validateAndTransformQuery(listProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -200,8 +205,7 @@ export default defineMiddlewares({
           z.object({
             offset: z.coerce.number().optional(),
             limit: z.coerce.number().optional(),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -217,8 +221,7 @@ export default defineMiddlewares({
             max_price: z.coerce.number().min(0).optional(),
             sizes: z.string().optional(),
             in_stock: z.enum(["true", "false"]).optional(),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
     },
 
@@ -229,7 +232,7 @@ export default defineMiddlewares({
       matcher: "/store/products",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(storeProductsQuerySchema),
+        validateAndTransformQuery(storeProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
 
@@ -247,7 +250,7 @@ export default defineMiddlewares({
       matcher: "/admin/categories",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listCategoriesQuerySchema),
+        validateAndTransformQuery(listCategoriesQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -279,7 +282,7 @@ export default defineMiddlewares({
       matcher: "/store/categories",
       method: "GET",
       middlewares: [
-        validateAndTransformQuery(listCategoriesQuerySchema),
+        validateAndTransformQuery(listCategoriesQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
@@ -292,8 +295,7 @@ export default defineMiddlewares({
             offset: z.coerce.number().min(0).default(0),
             limit: z.coerce.number().min(1).max(100).default(20),
             include_subcategories: z.enum(["true", "false"]).default("true"),
-          })
-        ),
+          }), LIST_QUERY_CONFIG),
       ],
     },
 
