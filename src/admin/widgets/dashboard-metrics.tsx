@@ -208,7 +208,7 @@ const DashboardMetricsWidget = () => {
 }
 
 export const config = defineWidgetConfig({
-  zone: "home.before",
+  zone: "product.list.before",
 })
 
 export default DashboardMetricsWidget
