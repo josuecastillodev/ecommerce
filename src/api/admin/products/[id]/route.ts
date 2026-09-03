@@ -6,7 +6,7 @@
  */
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { updateProductsWorkflow, deleteProductsWorkflow } from "@medusajs/medusa/core-flows"
 import { productValidators } from "../../../../modules/product-extension"
 
@@ -87,7 +87,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
 
   // Validate request body
   const parseResult = productValidators.updateProduct.safeParse({
-    ...req.body,
+    ...(req.body as Record<string, unknown>),
     id,
   })
 
@@ -111,6 +111,10 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   if (input.status !== undefined) updateData.status = input.status
   if (input.metadata !== undefined) updateData.metadata = input.metadata
 
+  // Categories are a native relation of the product module, so the core
+  // workflow updates them directly (this replaces the product's category set).
+  if (input.category_ids !== undefined) updateData.category_ids = input.category_ids
+
   // Handle images update
   if (input.images !== undefined) {
     updateData.images = input.images.map((url) => ({ url }))
@@ -122,25 +126,6 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       products: [updateData],
     },
   })
-
-  // Handle category updates separately if needed
-  if (input.category_ids !== undefined) {
-    const remoteLink = req.scope.resolve(ContainerRegistrationKeys.REMOTE_LINK)
-
-    // Remove existing category links
-    await remoteLink.dismiss({
-      [Modules.PRODUCT]: { product_id: id },
-      [Modules.PRODUCT]: { product_category_id: "*" },
-    })
-
-    // Add new category links
-    for (const categoryId of input.category_ids) {
-      await remoteLink.create({
-        [Modules.PRODUCT]: { product_id: id },
-        [Modules.PRODUCT]: { product_category_id: categoryId },
-      })
-    }
-  }
 
   res.json({ product: products[0] })
 }

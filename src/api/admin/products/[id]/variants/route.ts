@@ -109,7 +109,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
 
   // Validate request body
   const parseResult = productValidators.addVariant.safeParse({
-    ...req.body,
+    ...(req.body as Record<string, unknown>),
     product_id: productId,
     brand_id: brandId,
   })
