@@ -56,7 +56,7 @@ export const createCategorySchema = z.object({
     .boolean()
     .default(true),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullable()
     .optional(),
 })
@@ -96,7 +96,7 @@ export const updateCategorySchema = z.object({
     .boolean()
     .optional(),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullable()
     .optional(),
 })

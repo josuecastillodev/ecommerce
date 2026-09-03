@@ -20,9 +20,7 @@ const colorSchema = z.object({
 // Variant schema
 const variantSchema = z.object({
   size: z.enum(AVAILABLE_SIZES, {
-    errorMap: () => ({
-      message: `Size must be one of: ${AVAILABLE_SIZES.join(", ")}`,
-    }),
+    error: () => `Size must be one of: ${AVAILABLE_SIZES.join(", ")}`,
   }),
   color: colorSchema,
   stock: z
@@ -89,7 +87,7 @@ const createProductSchema = z.object({
     .enum(["draft", "published"])
     .default("draft"),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional(),
 })
 
@@ -127,7 +125,7 @@ const updateProductSchema = z.object({
     .enum(["draft", "published"])
     .optional(),
   metadata: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .optional(),
 })
 
