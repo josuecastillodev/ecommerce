@@ -1,18 +1,283 @@
 import type { ExecArgs } from "@medusajs/framework/types"
-import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
+import {
+  createApiKeysWorkflow,
+  createCustomerAccountWorkflow,
+  createInventoryLevelsWorkflow,
+  createRegionsWorkflow,
+  createSalesChannelsWorkflow,
+  createShippingOptionsWorkflow,
+  createShippingProfilesWorkflow,
+  createStockLocationsWorkflow,
+  createTaxRegionsWorkflow,
+  linkProductsToSalesChannelWorkflow,
+  linkSalesChannelsToApiKeyWorkflow,
+  linkSalesChannelsToStockLocationWorkflow,
+  updateStoresWorkflow,
+} from "@medusajs/medusa/core-flows"
 import { BRAND_MODULE } from "../modules/brand"
 import { CATEGORY_MODULE } from "../modules/category"
+import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
 import type BrandModuleService from "../modules/brand/service"
 import type CategoryModuleService from "../modules/category/service"
+import type CustomerBrandModuleService from "../modules/customer-brand/service"
 import { createProductWithBrandWorkflow } from "../workflows/create-product-with-brand"
 import type { CreateProductWithBrandInput } from "../modules/product-extension/types"
 
+const MANUAL_FULFILLMENT_PROVIDER = "manual_manual"
+
+/**
+ * Ignore "already linked" errors so the seed stays idempotent.
+ */
+async function safeLink(fn: () => Promise<unknown>) {
+  try {
+    await fn()
+  } catch (error: any) {
+    if (!/already exist|duplicate|unique/i.test(error?.message ?? "")) {
+      throw error
+    }
+  }
+}
+
 export default async function seed({ container }: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const link = container.resolve(ContainerRegistrationKeys.LINK)
+
   const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
   const categoryService: CategoryModuleService = container.resolve(CATEGORY_MODULE)
+  const customerBrandService: CustomerBrandModuleService =
+    container.resolve(CUSTOMER_BRAND_MODULE)
+
+  const storeModule = container.resolve(Modules.STORE)
+  const salesChannelModule = container.resolve(Modules.SALES_CHANNEL)
+  const regionModule = container.resolve(Modules.REGION)
+  const taxModule = container.resolve(Modules.TAX)
+  const stockLocationModule = container.resolve(Modules.STOCK_LOCATION)
+  const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+  const apiKeyModule = container.resolve(Modules.API_KEY)
+  const authModule = container.resolve(Modules.AUTH)
+  const customerModule = container.resolve(Modules.CUSTOMER)
 
   logger.info("Starting seed process...")
+
+  // ============================================================
+  // 0. Commerce fundamentals (region, channel, fulfillment, key)
+  // ============================================================
+  logger.info("Seeding commerce fundamentals...")
+
+  // Sales channel — reuse the one Medusa creates on first boot.
+  let [salesChannel] = await salesChannelModule.listSalesChannels(
+    {},
+    { take: 1, order: { created_at: "ASC" } }
+  )
+  if (!salesChannel) {
+    const { result } = await createSalesChannelsWorkflow(container).run({
+      input: { salesChannelsData: [{ name: "Tienda Multi-Marca" }] },
+    })
+    salesChannel = result[0]
+    logger.info("Created sales channel")
+  }
+
+  // Store — set MXN as the default supported currency + default channel.
+  const [store] = await storeModule.listStores()
+  if (store) {
+    await updateStoresWorkflow(container).run({
+      input: {
+        selector: { id: store.id },
+        update: {
+          supported_currencies: [{ currency_code: "mxn", is_default: true }],
+          default_sales_channel_id: salesChannel.id,
+        },
+      },
+    })
+  }
+
+  // Region — Mexico, MXN, cards + OXXO + manual.
+  let [region] = await regionModule.listRegions({ name: "México" })
+  if (!region) {
+    const { result } = await createRegionsWorkflow(container).run({
+      input: {
+        regions: [
+          {
+            name: "México",
+            currency_code: "mxn",
+            countries: ["mx"],
+            payment_providers: [
+              "pp_system_default",
+              "pp_stripe_stripe",
+              "pp_stripe-oxxo_stripe",
+            ],
+          },
+        ],
+      },
+    })
+    region = result[0]
+    logger.info("Created region: México")
+  }
+
+  // Tax region — MX.
+  const existingTaxRegions = await taxModule.listTaxRegions({ country_code: "mx" })
+  if (existingTaxRegions.length === 0) {
+    await createTaxRegionsWorkflow(container).run({
+      input: [{ country_code: "mx" }],
+    })
+    logger.info("Created tax region: MX")
+  }
+
+  // Stock location — a single warehouse in CDMX.
+  let [stockLocation] = await stockLocationModule.listStockLocations({
+    name: "Almacén CDMX",
+  })
+  if (!stockLocation) {
+    const { result } = await createStockLocationsWorkflow(container).run({
+      input: {
+        locations: [
+          {
+            name: "Almacén CDMX",
+            address: {
+              address_1: "Av. Paseo de la Reforma 1",
+              city: "Ciudad de México",
+              country_code: "mx",
+              postal_code: "06600",
+            },
+          },
+        ],
+      },
+    })
+    stockLocation = result[0]
+    logger.info("Created stock location: Almacén CDMX")
+  }
+
+  await safeLink(() =>
+    link.create({
+      [Modules.STOCK_LOCATION]: { stock_location_id: stockLocation.id },
+      [Modules.FULFILLMENT]: {
+        fulfillment_provider_id: MANUAL_FULFILLMENT_PROVIDER,
+      },
+    })
+  )
+
+  await linkSalesChannelsToStockLocationWorkflow(container).run({
+    input: { id: stockLocation.id, add: [salesChannel.id] },
+  })
+
+  // Fulfillment set + service zone for Mexico.
+  let [fulfillmentSet] = await fulfillmentModule.listFulfillmentSets(
+    { name: "Envíos MX" },
+    { relations: ["service_zones"] }
+  )
+  if (!fulfillmentSet) {
+    fulfillmentSet = await fulfillmentModule.createFulfillmentSets({
+      name: "Envíos MX",
+      type: "shipping",
+      service_zones: [
+        {
+          name: "México",
+          geo_zones: [{ country_code: "mx", type: "country" }],
+        },
+      ],
+    })
+    logger.info("Created fulfillment set: Envíos MX")
+  }
+
+  let serviceZones = fulfillmentSet.service_zones ?? []
+  if (serviceZones.length === 0) {
+    const [reloaded] = await fulfillmentModule.listFulfillmentSets(
+      { id: fulfillmentSet.id },
+      { relations: ["service_zones"] }
+    )
+    serviceZones = reloaded?.service_zones ?? []
+  }
+  const serviceZone = serviceZones[0]
+
+  await safeLink(() =>
+    link.create({
+      [Modules.STOCK_LOCATION]: { stock_location_id: stockLocation.id },
+      [Modules.FULFILLMENT]: { fulfillment_set_id: fulfillmentSet.id },
+    })
+  )
+
+  // Shipping profile — reuse Medusa's default.
+  let [shippingProfile] = await fulfillmentModule.listShippingProfiles({
+    type: "default",
+  })
+  if (!shippingProfile) {
+    const { result } = await createShippingProfilesWorkflow(container).run({
+      input: { data: [{ name: "Default", type: "default" }] },
+    })
+    shippingProfile = result[0]
+  }
+
+  // Shipping options — standard + express, priced in MXN (centavos, matching
+  // the product price convention already used in this seed).
+  const existingShippingOptions = await fulfillmentModule.listShippingOptions({
+    name: ["Envío Estándar", "Envío Exprés"],
+  })
+  if (existingShippingOptions.length < 2 && serviceZone) {
+    await createShippingOptionsWorkflow(container).run({
+      input: [
+        {
+          name: "Envío Estándar",
+          price_type: "flat",
+          provider_id: MANUAL_FULFILLMENT_PROVIDER,
+          service_zone_id: serviceZone.id,
+          shipping_profile_id: shippingProfile.id,
+          type: {
+            label: "Estándar",
+            description: "Entrega en 3-5 días hábiles",
+            code: "standard",
+          },
+          prices: [
+            { currency_code: "mxn", amount: 9900 },
+            { region_id: region.id, amount: 9900 },
+          ],
+          rules: [
+            { attribute: "enabled_in_store", value: "true", operator: "eq" },
+            { attribute: "is_return", value: "false", operator: "eq" },
+          ],
+        },
+        {
+          name: "Envío Exprés",
+          price_type: "flat",
+          provider_id: MANUAL_FULFILLMENT_PROVIDER,
+          service_zone_id: serviceZone.id,
+          shipping_profile_id: shippingProfile.id,
+          type: {
+            label: "Exprés",
+            description: "Entrega en 1-2 días hábiles",
+            code: "express",
+          },
+          prices: [
+            { currency_code: "mxn", amount: 19900 },
+            { region_id: region.id, amount: 19900 },
+          ],
+          rules: [
+            { attribute: "enabled_in_store", value: "true", operator: "eq" },
+            { attribute: "is_return", value: "false", operator: "eq" },
+          ],
+        },
+      ],
+    })
+    logger.info("Created shipping options: Estándar + Exprés")
+  }
+
+  // Publishable API key — required for every /store/* request.
+  let [publishableKey] = await apiKeyModule.listApiKeys({ type: "publishable" })
+  if (!publishableKey) {
+    const { result } = await createApiKeysWorkflow(container).run({
+      input: {
+        api_keys: [
+          { title: "Storefront", type: "publishable", created_by: "seed" },
+        ],
+      },
+    })
+    publishableKey = result[0]
+    logger.info("Created publishable API key")
+  }
+  await linkSalesChannelsToApiKeyWorkflow(container).run({
+    input: { id: publishableKey.id, add: [salesChannel.id] },
+  })
 
   // ==================
   // 1. Create Brands
@@ -375,9 +640,122 @@ export default async function seed({ container }: ExecArgs) {
     }
   }
 
+  // ============================================================
+  // 4. Make products purchasable: sales channel + inventory
+  // ============================================================
+  const { data: allProducts } = await query.graph({
+    entity: "product",
+    fields: ["id"],
+  })
+  if (allProducts.length > 0) {
+    await linkProductsToSalesChannelWorkflow(container).run({
+      input: { id: salesChannel.id, add: allProducts.map((p: any) => p.id) },
+    })
+    logger.info(`Linked ${allProducts.length} products to the sales channel`)
+  }
+
+  const { data: inventoryItems } = await query.graph({
+    entity: "inventory_item",
+    fields: ["id"],
+  })
+  const { data: inventoryLevels } = await query.graph({
+    entity: "inventory_level",
+    fields: ["inventory_item_id", "location_id"],
+  })
+  const existingLevelKeys = new Set(
+    inventoryLevels.map((l: any) => `${l.inventory_item_id}:${l.location_id}`)
+  )
+  const levelsToCreate = inventoryItems
+    .filter(
+      (item: any) => !existingLevelKeys.has(`${item.id}:${stockLocation.id}`)
+    )
+    .map((item: any) => ({
+      inventory_item_id: item.id,
+      location_id: stockLocation.id,
+      stocked_quantity: 100,
+    }))
+  if (levelsToCreate.length > 0) {
+    await createInventoryLevelsWorkflow(container).run({
+      input: { inventory_levels: levelsToCreate },
+    })
+    logger.info(`Created ${levelsToCreate.length} inventory levels`)
+  }
+
+  // ==================
+  // 5. Test customers (one per brand)
+  // ==================
+  logger.info("Seeding test customers...")
+
+  const testCustomers = [
+    {
+      email: "ana@urban-street.mx",
+      first_name: "Ana",
+      last_name: "García",
+      brand_slug: "urban-street",
+    },
+    {
+      email: "luis@classic-threads.mx",
+      first_name: "Luis",
+      last_name: "Hernández",
+      brand_slug: "classic-threads",
+    },
+  ]
+  const TEST_CUSTOMER_PASSWORD = "Password123"
+
+  for (const tc of testCustomers) {
+    const [existing] = await customerModule.listCustomers({ email: tc.email })
+    if (existing) {
+      logger.info(`Test customer already exists: ${tc.email}`)
+      continue
+    }
+
+    const brand = brands[tc.brand_slug]
+
+    const authResponse = await authModule.register("emailpass", {
+      body: { email: tc.email, password: TEST_CUSTOMER_PASSWORD },
+    })
+
+    if (!authResponse.success || !authResponse.authIdentity) {
+      logger.error(
+        `Failed to register auth identity for ${tc.email}: ${authResponse.error}`
+      )
+      continue
+    }
+
+    const { result: customer } = await createCustomerAccountWorkflow(container).run(
+      {
+        input: {
+          authIdentityId: authResponse.authIdentity.id,
+          customerData: {
+            email: tc.email,
+            first_name: tc.first_name,
+            last_name: tc.last_name,
+            metadata: { brand_id: brand.id },
+          },
+        },
+      }
+    )
+
+    const alreadyLinked = await customerBrandService.findByCustomerId(customer.id)
+    if (!alreadyLinked) {
+      await customerBrandService.associateCustomerWithBrand(customer.id, brand.id, {
+        registered_from: "api",
+        language_preference: "es",
+      })
+    }
+
+    logger.info(`Created test customer ${tc.email} → ${tc.brand_slug}`)
+  }
+
+  // ==================
+  // Summary
+  // ==================
   logger.info("Seed process completed!")
-  logger.info(`Summary:`)
+  logger.info("Summary:")
   logger.info(`  - Brands: ${Object.keys(brands).length}`)
   logger.info(`  - Categories: ${Object.keys(categories).length}`)
   logger.info(`  - Products: ${productsData.length}`)
+  logger.info(`  - Region: México (MXN, cards + OXXO)`)
+  logger.info(`  - Publishable API key: ${publishableKey.token}`)
+  logger.info(`  - Test customers: ana@urban-street.mx / luis@classic-threads.mx (pass: ${TEST_CUSTOMER_PASSWORD})`)
 }
