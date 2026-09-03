@@ -102,9 +102,9 @@ export const addVariantToProductWorkflow = createWorkflow(
     const variantInput = transform(
       { input, variantData },
       ({ input, variantData }) => ({
-        product_id: input.product_id,
-        variants: [
+        product_variants: [
           {
+            product_id: input.product_id,
             title: `${input.size} / ${input.color.name}`,
             sku: variantData.sku,
             manage_inventory: true,
@@ -124,7 +124,9 @@ export const addVariantToProductWorkflow = createWorkflow(
       })
     )
 
-    const { result: variants } = createProductVariantsWorkflow.runAsStep({
+    // runAsStep() returns the workflow's response value directly (the variants
+    // array), not a { result } wrapper.
+    const variants = createProductVariantsWorkflow.runAsStep({
       input: variantInput,
     })
 
