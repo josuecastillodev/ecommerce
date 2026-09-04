@@ -41,6 +41,30 @@ const validateBrandStep = createStep(
   }
 )
 
+// Step: Resolve the shipping profile to attach the product to.
+// createProductsWorkflow silently skips the fulfillment link when
+// shipping_profile_id is missing, which leaves the product unroutable — cart
+// completion then fails with "shipping profiles that are not satisfied by
+// the current shipping methods" for every product created this way.
+const resolveShippingProfileStep = createStep(
+  "resolve-shipping-profile",
+  async (_input: void, { container }) => {
+    const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
+    const [profile] = await fulfillmentModule.listShippingProfiles(
+      { type: "default" },
+      { take: 1 }
+    )
+
+    if (!profile) {
+      throw new Error(
+        "No default shipping profile found. Create one before adding products."
+      )
+    }
+
+    return new StepResponse({ shipping_profile_id: profile.id })
+  }
+)
+
 // Step: Validate SKU uniqueness
 const validateSKUUniquenessStep = createStep(
   "validate-sku-uniqueness",
@@ -164,10 +188,13 @@ export const createProductWithBrandWorkflow = createWorkflow(
     // Step 3: Validate SKU uniqueness
     validateSKUUniquenessStep({ skus: productData.skus })
 
+    // Step 3b: Resolve the default shipping profile
+    const shippingProfileData = resolveShippingProfileStep()
+
     // Step 4: Build product input for Medusa core workflow
     const medusaProductInput = transform(
-      { input, productData },
-      ({ input, productData }) => {
+      { input, productData, shippingProfileData },
+      ({ input, productData, shippingProfileData }) => {
         const options = buildVariantOptions(input.variants)
 
         const variants = productData.variantsWithSKU.map((variant) => ({
@@ -198,6 +225,7 @@ export const createProductWithBrandWorkflow = createWorkflow(
           thumbnail: input.thumbnail,
           images: input.images?.map((url) => ({ url })),
           status: input.status || "draft",
+          shipping_profile_id: shippingProfileData.shipping_profile_id,
           options,
           variants,
           metadata: {

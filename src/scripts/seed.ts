@@ -116,11 +116,15 @@ export default async function seed({ container }: ExecArgs) {
     logger.info("Created region: México")
   }
 
-  // Tax region — MX.
+  // Tax region — MX. `provider_id` must be set explicitly: Medusa only
+  // backfills "tp_system" on regions that already existed at migration time
+  // (migrate-tax-region-provider.js), not on regions created afterwards by
+  // this seed — leaving it unset breaks tax calculation on every cart
+  // (500 "Unable to retrieve the tax provider with id: null").
   const existingTaxRegions = await taxModule.listTaxRegions({ country_code: "mx" })
   if (existingTaxRegions.length === 0) {
     await createTaxRegionsWorkflow(container).run({
-      input: [{ country_code: "mx" }],
+      input: [{ country_code: "mx", provider_id: "tp_system" }],
     })
     logger.info("Created tax region: MX")
   }
