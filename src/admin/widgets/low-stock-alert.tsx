@@ -7,6 +7,7 @@ import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Text, Badge, Table, Button } from "@medusajs/ui"
 import { useState, useEffect } from "react"
 import { useBrands } from "../hooks/use-brand"
+import { fetchLowStockProducts } from "../lib/api"
 
 interface LowStockProduct {
   id: string
@@ -20,68 +21,35 @@ interface LowStockProduct {
 const LOW_STOCK_THRESHOLD = 10
 
 const LowStockAlertWidget = () => {
-  const { brands, selectedBrand } = useBrands()
+  const { selectedBrand } = useBrands()
   const [products, setProducts] = useState<LowStockProduct[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    loadLowStockProducts()
-  }, [selectedBrand])
-
-  const loadLowStockProducts = async () => {
+    let cancelled = false
     setIsLoading(true)
-    try {
-      // Mock data - in real implementation, call API
-      const mockProducts: LowStockProduct[] = [
-        {
-          id: "1",
-          title: "Camiseta Grafitti - M/Negro",
-          sku: "urban-street-camiseta-grafitti-M-negro",
-          stock: 3,
-          brand_name: "Urban Street",
-          brand_color: "#1A1A1A",
-        },
-        {
-          id: "2",
-          title: "Polo Ejecutivo - L/Azul",
-          sku: "classic-threads-polo-ejecutivo-L-azul-marino",
-          stock: 5,
-          brand_name: "Classic Threads",
-          brand_color: "#2C3E50",
-        },
-        {
-          id: "3",
-          title: "T-Shirt Neon Dreams - XL/Negro",
-          sku: "urban-street-t-shirt-neon-dreams-XL-negro",
-          stock: 2,
-          brand_name: "Urban Street",
-          brand_color: "#1A1A1A",
-        },
-        {
-          id: "4",
-          title: "Henley Casual - S/Beige",
-          sku: "classic-threads-henley-casual-S-beige",
-          stock: 8,
-          brand_name: "Classic Threads",
-          brand_color: "#2C3E50",
-        },
-      ]
-
-      // Filter by selected brand if any
-      let filtered = mockProducts
-      if (selectedBrand) {
-        filtered = mockProducts.filter(
-          (p) => p.brand_name === selectedBrand.name
-        )
-      }
-
-      setProducts(filtered.filter((p) => p.stock <= LOW_STOCK_THRESHOLD))
-    } catch (error) {
-      console.error("Failed to load low stock products:", error)
-    } finally {
-      setIsLoading(false)
+    fetchLowStockProducts(selectedBrand?.id, LOW_STOCK_THRESHOLD)
+      .then((data) => {
+        if (!cancelled) {
+          const rows: LowStockProduct[] = (data.products || []).map((p: any) => ({
+            id: p.id,
+            title: p.title,
+            sku: p.variants?.[0]?.sku ?? "—",
+            stock: p.total_stock ?? 0,
+            brand_name: p.brand?.name ?? "Sin marca",
+            brand_color: p.brand?.primary_color ?? "#888",
+          }))
+          setProducts(rows)
+        }
+      })
+      .catch((error) => console.error("Failed to load low stock products:", error))
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }
+  }, [selectedBrand])
 
   if (isLoading) {
     return (

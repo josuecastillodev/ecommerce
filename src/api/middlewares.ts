@@ -89,6 +89,8 @@ const listProductsQuerySchema = z.object({
   max_price: z.coerce.number().min(0).optional(),
   sizes: z.string().optional(), // comma-separated
   in_stock: z.enum(["true", "false"]).optional(),
+  low_stock: z.enum(["true", "false"]).optional(),
+  threshold: z.coerce.number().min(0).optional(),
 })
 
 const storeProductsQuerySchema = listProductsQuerySchema.omit({ status: true })
@@ -163,31 +165,32 @@ export default defineMiddlewares({
     },
 
     // ====================
-    // Admin Product Routes
+    // Admin Product Routes (custom brand layer — namespaced to avoid
+    // shadowing Medusa's native /admin/products screens)
     // ====================
     {
-      matcher: "/admin/products",
+      matcher: "/admin/brand-products",
       method: "POST",
       middlewares: [
         validateAndTransformBody(createProductSchema),
       ],
     },
     {
-      matcher: "/admin/products",
+      matcher: "/admin/brand-products",
       method: "GET",
       middlewares: [
         validateAndTransformQuery(listProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
-      matcher: "/admin/products/:id",
+      matcher: "/admin/brand-products/:id",
       method: "POST",
       middlewares: [
         validateAndTransformBody(updateProductSchema),
       ],
     },
     {
-      matcher: "/admin/products/:id/variants",
+      matcher: "/admin/brand-products/:id/variants",
       method: "POST",
       middlewares: [
         validateAndTransformBody(addVariantSchema),

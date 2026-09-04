@@ -155,6 +155,8 @@ const productFiltersSchema = z.object({
   max_price: z.number().min(0).optional(),
   sizes: z.array(z.enum(AVAILABLE_SIZES)).optional(),
   in_stock: z.boolean().optional(),
+  low_stock: z.boolean().optional(),
+  threshold: z.number().int().min(0).optional(),
   offset: z.number().int().min(0).default(0),
   limit: z.number().int().min(1).max(100).default(20),
 })

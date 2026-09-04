@@ -23,29 +23,21 @@ import { useNavigate } from "react-router-dom"
 import { useBrands } from "../../hooks/use-brand"
 import { fetchProducts } from "../../lib/api"
 
-interface ProductVariant {
-  id: string
-  sku: string
-  size: string
-  color_name: string
-  color_hex: string
-  stock: number
-  price: number
-}
-
 interface Product {
   id: string
   title: string
-  slug: string
+  handle: string
   thumbnail: string | null
   status: "draft" | "published"
-  base_price: number
-  brand_id: string
+  metadata: { brand_id?: string } | null
+  brand: { id: string; name: string; primary_color: string } | null
+  price_range: { min: number; max: number } | null
+  variant_count: number
+  total_stock: number
+  created_at: string
+  // resolved client-side for rendering
   brand_name: string
   brand_color: string
-  total_stock: number
-  variants_count: number
-  created_at: string
 }
 
 const BrandProductsPage = () => {
@@ -84,11 +76,16 @@ const BrandProductsPage = () => {
       const data = await fetchProducts(params)
 
       // Transform data to include brand info
-      const transformedProducts = (data.products || []).map((p: any) => ({
-        ...p,
-        brand_name: brands.find((b) => b.id === p.brand_id)?.name || "Sin marca",
-        brand_color: brands.find((b) => b.id === p.brand_id)?.primary_color || "#888",
-      }))
+      const transformedProducts = (data.products || []).map((p: any) => {
+        const brand =
+          p.brand ??
+          brands.find((b) => b.id === (p.metadata?.brand_id ?? p.brand_id))
+        return {
+          ...p,
+          brand_name: brand?.name ?? "Sin marca",
+          brand_color: brand?.primary_color ?? "#888",
+        }
+      })
 
       setProducts(transformedProducts)
       setPagination((prev) => ({
@@ -108,11 +105,13 @@ const BrandProductsPage = () => {
     product.title.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
-  const formatPrice = (price: number) => {
-    return new Intl.NumberFormat("es-MX", {
-      style: "currency",
-      currency: "MXN",
-    }).format(price / 100)
+  const formatPriceRange = (range: { min: number; max: number } | null) => {
+    if (!range) return "—"
+    const fmt = (n: number) =>
+      new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(
+        n / 100
+      )
+    return range.min === range.max ? fmt(range.min) : `${fmt(range.min)} – ${fmt(range.max)}`
   }
 
   const formatDate = (dateString: string) => {
@@ -256,7 +255,7 @@ const BrandProductsPage = () => {
                       <div>
                         <Text weight="plus">{product.title}</Text>
                         <Text size="xsmall" className="text-ui-fg-muted">
-                          {product.slug}
+                          {product.handle}
                         </Text>
                       </div>
                     </div>
@@ -271,11 +270,11 @@ const BrandProductsPage = () => {
                     </div>
                   </Table.Cell>
                   <Table.Cell>
-                    <Text>{formatPrice(product.base_price)}</Text>
+                    <Text>{formatPriceRange(product.price_range)}</Text>
                   </Table.Cell>
                   <Table.Cell>
                     <Badge color="grey" size="small">
-                      {product.variants_count} variantes
+                      {product.variant_count} variantes
                     </Badge>
                   </Table.Cell>
                   <Table.Cell>

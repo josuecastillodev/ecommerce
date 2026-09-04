@@ -86,6 +86,41 @@ de una vez.
   no hay `.nvmrc` (Node del sistema es v24; Medusa 2.20 soporta 20/22, arrancó
   igual).
 
+### Derivados del review del admin dashboard (#1b)
+
+- `src/api/admin/dashboard/metrics/route.ts`: las queries de productos y pedidos
+  no tienen `pagination` — cargan todo el catálogo y todos los pedidos en
+  memoria. Acotar (ventana de fecha para pedidos, `take` para productos) antes
+  de que la tienda tenga volumen real.
+- `src/api/admin/brand-products/[id]/route.ts` y `.../[id]/variants/route.ts`
+  siguen leyendo `variants.inventory_quantity` (que `query.graph` no popula) →
+  reportan stock `0` en detalle/variantes mientras la lista ya muestra el stock
+  real. Unificar con el mismo cálculo desde `location_levels`.
+- El cálculo de stock disponible (`sum(stocked_quantity - reserved_quantity)`
+  sobre `variants.inventory_items.inventory.location_levels`) está duplicado en
+  la ruta de lista y en el endpoint de métricas. Extraer un helper compartido
+  (p. ej. en `src/modules/product-extension/`).
+- Widgets admin: `dashboard-metrics` se queda en "Cargando métricas…" y
+  `low-stock-alert` desaparece por completo si su fetch falla — no distinguen
+  error de "sin datos". Añadir un estado de error visible.
+- Falta un tipo de respuesta compartido para el producto del admin
+  (`src/admin/lib/api.ts` usa `any`); un `BrandProduct` en
+  `src/admin/lib/types.ts` evitaría el tipo de drift de campos que originó la
+  Task 2.
+- `pending_orders` en el endpoint de métricas cuenta `status === "pending"`, que
+  en Medusa v2 es el estado activo normal (cuenta todo pedido no completado).
+  Revisar contra `fulfillment_status`/`payment_status` cuando haya pedidos
+  sembrados.
+- Docstrings en `src/api/admin/brand-products/*.ts` todavía dicen
+  `/admin/products` (rutas viejas antes del move).
+- `GET /store/products?brand_id=` sigue devolviendo 400 (`Unrecognized fields`):
+  el middleware nativo de Medusa sobre `/store/products` rechaza el param antes
+  de llegar al handler. El filtro de marca del storefront ya funciona por
+  `/store/brands/:slug/products`; si se quiere soportar `brand_id` en
+  `/store/products` hay que rodear ese middleware nativo (mismo patrón que el
+  des-shadow de `/admin/products`). El fix del key `{ brand: { id } }` en
+  `src/api/store/products/route.ts` ya quedó aplicado para cuando se desbloquee.
+
 ---
 
 ## Cómo correr y probar en local

@@ -22,6 +22,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     max_price: req.query.max_price ? Number(req.query.max_price) : undefined,
     sizes: req.query.sizes ? (req.query.sizes as string).split(",") : undefined,
     in_stock: req.query.in_stock === "true" ? true : undefined,
+    low_stock: req.query.low_stock === "true" ? true : undefined,
+    threshold: req.query.threshold ? Number(req.query.threshold) : undefined,
     offset: req.query.offset ? Number(req.query.offset) : 0,
     limit: req.query.limit ? Number(req.query.limit) : 20,
   })
@@ -44,10 +46,11 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     queryFilters.status = filters.status
   }
 
-  // Brand filter through link
-  let brandFilter: { brand_id: string } | undefined
+  // Brand filter through link (Medusa v2 link filters key on the linked
+  // entity's own id, not the link FK column)
+  let brandFilter: { id: string } | undefined
   if (filters.brand_id) {
-    brandFilter = { brand_id: filters.brand_id }
+    brandFilter = { id: filters.brand_id }
   }
 
   if (filters.category_id) {
@@ -75,7 +78,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.sku",
       "variants.prices.*",
       "variants.options.*",
-      "variants.inventory_quantity",
+      "variants.inventory_items.inventory.location_levels.stocked_quantity",
+      "variants.inventory_items.inventory.location_levels.reserved_quantity",
       "categories.id",
       "categories.name",
       "categories.handle",
@@ -87,7 +91,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     },
     pagination: {
       skip: filters.offset,
-      take: filters.limit,
+      take: filters.low_stock
+        ? Math.max(filters.limit ?? 20, 200)
+        : (filters.limit ?? 20),
       order: { created_at: "DESC" },
     },
   })
@@ -95,29 +101,40 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   // Enrich products with computed fields
   const enrichedProducts = products.map((product: any) => {
     const variants = product.variants || []
-    const prices = variants.flatMap((v: any) =>
-      v.prices?.map((p: any) => p.amount) || []
-    )
+    const prices = variants.flatMap((v: any) => v.prices?.map((p: any) => p.amount) || [])
 
-    const totalStock = variants.reduce(
-      (sum: number, v: any) => sum + (v.inventory_quantity || 0),
-      0
-    )
+    const totalStock = variants.reduce((sum: number, v: any) => {
+      const levels =
+        v.inventory_items?.flatMap(
+          (ii: any) => ii.inventory?.location_levels ?? []
+        ) ?? []
+      const available = levels.reduce(
+        (s: number, l: any) => s + ((l.stocked_quantity ?? 0) - (l.reserved_quantity ?? 0)),
+        0
+      )
+      return sum + available
+    }, 0)
 
     return {
       ...product,
-      price_range: prices.length > 0
-        ? { min: Math.min(...prices), max: Math.max(...prices) }
-        : null,
+      price_range:
+        prices.length > 0
+          ? { min: Math.min(...prices), max: Math.max(...prices) }
+          : null,
       total_stock: totalStock,
       variant_count: variants.length,
       in_stock: totalStock > 0,
     }
   })
 
+  const threshold = filters.threshold ?? 10
+  const finalProducts = filters.low_stock
+    ? enrichedProducts.filter((p) => p.total_stock <= threshold)
+    : enrichedProducts
+
   res.json({
-    products: enrichedProducts,
-    count: metadata?.count || enrichedProducts.length,
+    products: finalProducts,
+    count: filters.low_stock ? finalProducts.length : metadata?.count || finalProducts.length,
     offset: filters.offset,
     limit: filters.limit,
   })
