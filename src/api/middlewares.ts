@@ -163,31 +163,32 @@ export default defineMiddlewares({
     },
 
     // ====================
-    // Admin Product Routes
+    // Admin Product Routes (custom brand layer — namespaced to avoid
+    // shadowing Medusa's native /admin/products screens)
     // ====================
     {
-      matcher: "/admin/products",
+      matcher: "/admin/brand-products",
       method: "POST",
       middlewares: [
         validateAndTransformBody(createProductSchema),
       ],
     },
     {
-      matcher: "/admin/products",
+      matcher: "/admin/brand-products",
       method: "GET",
       middlewares: [
         validateAndTransformQuery(listProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
     {
-      matcher: "/admin/products/:id",
+      matcher: "/admin/brand-products/:id",
       method: "POST",
       middlewares: [
         validateAndTransformBody(updateProductSchema),
       ],
     },
     {
-      matcher: "/admin/products/:id/variants",
+      matcher: "/admin/brand-products/:id/variants",
       method: "POST",
       middlewares: [
         validateAndTransformBody(addVariantSchema),

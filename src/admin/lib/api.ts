@@ -116,7 +116,7 @@ export async function fetchProducts(params: {
   if (params.offset) searchParams.set("offset", String(params.offset))
   if (params.status) searchParams.set("status", params.status)
 
-  const response = await fetch(`${API_BASE}/products?${searchParams}`)
+  const response = await fetch(`${API_BASE}/brand-products?${searchParams}`)
 
   if (!response.ok) {
     throw new Error("Failed to fetch products")
@@ -159,7 +159,7 @@ export async function fetchLowStockProducts(brandId?: string, threshold = 10) {
   params.set("threshold", String(threshold))
   if (brandId) params.set("brand_id", brandId)
 
-  const response = await fetch(`${API_BASE}/products?${params}`)
+  const response = await fetch(`${API_BASE}/brand-products?${params}`)
 
   if (!response.ok) {
     throw new Error("Failed to fetch low stock products")
