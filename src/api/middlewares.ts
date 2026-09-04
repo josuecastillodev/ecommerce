@@ -89,6 +89,8 @@ const listProductsQuerySchema = z.object({
   max_price: z.coerce.number().min(0).optional(),
   sizes: z.string().optional(), // comma-separated
   in_stock: z.enum(["true", "false"]).optional(),
+  low_stock: z.enum(["true", "false"]).optional(),
+  threshold: z.coerce.number().min(0).optional(),
 })
 
 const storeProductsQuerySchema = listProductsQuerySchema.omit({ status: true })
