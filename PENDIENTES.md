@@ -20,6 +20,7 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Versión de `zod`** | PR #5 (`fix/zod-version-alignment`) | Medusa 2.20.1 usa `zod@4.2.0` internamente (`@medusajs/deps/zod`), no 3.x. Se subió `zod` a `4.2.0` exacto y se migraron los validadores a la API v4 (`z.record` con key schema, `errorMap`→`error`, `.error.issues`, `z.ZodType`). |
 | **Admin dashboard — tipado (#1a)** | PR #6 (`fix/admin-react-types`) | Faltaban `@types/react`/`@types/react-dom` y `lib: ["DOM"]` en `tsconfig.json` (~350 de los ~360 errores). 3 widgets usaban injection zones inexistentes en 2.20 (`home.before/after`, `nav.top.before`) → movidos a `product.list.*` como stopgap. |
 | **Admin dashboard — pantallas y datos reales (#1b)** | PR #7 (`fix/admin-screens-verify`) | Verificado en navegador y arreglado: la API custom de producto tapaba las pantallas **nativas** de Productos (`GET /admin/products` con middleware estricto → 400 en los params que el admin nativo siempre manda) — movida a `/admin/brand-products*`. La pantalla "Productos por Marca" leía campos que la API no devuelve (`brand_id`, `base_price`, `variants_count`) → `brand`, `price_range`, `variant_count`. `total_stock` pasó de estar siempre en 0 a calcularse real desde `location_levels`. Nuevo endpoint `GET /admin/dashboard/metrics` con agregación real. Bug del filtro de marca por link (`{ brand: { brand_id } }` en vez de `{ brand: { id } }`) corregido en 3 rutas. Widgets `dashboard-metrics` y `low-stock-alert` dejaron de usar mock (`Math.random()` / arrays hardcodeados). |
+| **Convención de precios (centavos → decimal)** | — | Medusa 2.x guarda `amount` en **decimal** (unidad mayor: pesos, no centavos) — confirmado contra `@medusajs/dashboard` (`money-amount-helpers.ts` y el `data-grid-currency-cell`, que formatean/editan `amount` tal cual, sin dividir por 100). El seed y dos vistas del admin custom asumían centavos y quedó mezclado: `seed.ts` sembraba `base_price: 45000` / envíos en `9900`-`19900`, mientras `brand-products/page.tsx` y `dashboard-metrics.tsx` dividían `amount / 100` al mostrarlo (compensando, pero solo en las pantallas custom — el admin nativo de Medusa habría mostrado $45,000.00 en vez de $450.00). Corregido: `seed.ts` ahora siembra en decimal (`base_price: 450`, envíos `99`/`199`) y las dos vistas custom dejaron de dividir entre 100. |
 
 ---
 
@@ -34,15 +35,7 @@ claves reales de Stripe test (`STRIPE_API_KEY`, `STRIPE_PUBLISHABLE_KEY`,
 `STRIPE_WEBHOOK_SECRET`) y, para webhooks en local, un túnel (ngrok) apuntando
 a `/hooks/payment/stripe`.
 
-### 2. Convención de precios (centavos)
-
-Los productos usan escala centavos: `base_price: 45000` = **$450.00 MXN**. Las
-shipping options del seed siguen la misma convención ($99 / $199). Es
-consistente dentro de la rama, pero si el modelo de dinero de Medusa 2.x espera
-decimales, esto es un bug transversal (productos + envíos) que hay que corregir
-de una vez.
-
-### 3. Varios
+### 2. Varios
 
 - `src/utils/brand-middleware.ts` exporta `requireBrandId`,
   `validateCartBrandAccess`, `optionalBrandId` sin cablear — toolkit pensado
@@ -56,7 +49,7 @@ de una vez.
   no hay `.nvmrc` (Node del sistema es v24; Medusa 2.20 soporta 20/22, arrancó
   igual).
 
-### 4. Follow-ups del admin dashboard (derivados del review de PR #7)
+### 3. Follow-ups del admin dashboard (derivados del review de PR #7)
 
 - `src/api/admin/dashboard/metrics/route.ts`: las queries de productos y pedidos
   no tienen `pagination` — cargan todo el catálogo y todos los pedidos en
