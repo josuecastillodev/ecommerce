@@ -91,7 +91,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     },
     pagination: {
       skip: filters.offset,
-      take: filters.limit,
+      take: filters.low_stock
+        ? Math.max(filters.limit ?? 20, 200)
+        : (filters.limit ?? 20),
       order: { created_at: "DESC" },
     },
   })

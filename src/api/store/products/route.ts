@@ -39,9 +39,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   }
 
   // If brand_id is provided, we need to query through the link
-  let brandFilter: { brand_id: string } | undefined
+  let brandFilter: { id: string } | undefined
   if (filters.brand_id) {
-    brandFilter = { brand_id: filters.brand_id }
+    brandFilter = { id: filters.brand_id }
   }
 
   if (filters.category_id) {

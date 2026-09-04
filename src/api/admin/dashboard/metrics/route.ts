@@ -117,7 +117,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       brandIdsInOrder.add(bId)
       const bucket = buckets.get(bId)
       if (!bucket) continue
-      if (createdToday) bucket.total_sales += Number(item.total ?? 0)
+      const lineTotal = Number(item.total ?? 0)
+      if (createdToday && Number.isFinite(lineTotal)) bucket.total_sales += lineTotal
     }
     for (const bId of brandIdsInOrder) {
       const bucket = buckets.get(bId)!
