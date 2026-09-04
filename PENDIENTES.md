@@ -55,6 +55,12 @@ a `/hooks/payment/stripe`.
   no tienen `pagination` — cargan todo el catálogo y todos los pedidos en
   memoria. Acotar (ventana de fecha para pedidos, `take` para productos) antes
   de que la tienda tenga volumen real.
+- Mismo archivo: `bucket.total_sales += Number(item.total ?? 0)` suma montos
+  con `number`/`+=` nativo de JS en vez del `BigNumber` que usa el resto de
+  Medusa (`@medusajs/utils`, respaldado por `bignumber.js`, con `amount`
+  guardado como `numeric` en Postgres — no `float`). Con pocos pedidos no se
+  nota, pero al sumar muchas líneas puede acumular error de punto flotante.
+  Migrar a `BigNumber` cuando haya volumen real de pedidos.
 - `src/api/admin/brand-products/[id]/route.ts` y `.../[id]/variants/route.ts`
   siguen leyendo `variants.inventory_quantity` (que `query.graph` no popula) →
   reportan stock `0` en detalle/variantes mientras la lista ya muestra el stock
