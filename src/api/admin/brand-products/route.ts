@@ -46,10 +46,11 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     queryFilters.status = filters.status
   }
 
-  // Brand filter through link
-  let brandFilter: { brand_id: string } | undefined
+  // Brand filter through link (Medusa v2 link filters key on the linked
+  // entity's own id, not the link FK column)
+  let brandFilter: { id: string } | undefined
   if (filters.brand_id) {
-    brandFilter = { brand_id: filters.brand_id }
+    brandFilter = { id: filters.brand_id }
   }
 
   if (filters.category_id) {

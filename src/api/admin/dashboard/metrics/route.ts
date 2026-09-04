@@ -63,7 +63,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.inventory_items.inventory.location_levels.stocked_quantity",
       "variants.inventory_items.inventory.location_levels.reserved_quantity",
     ],
-    ...(brandIdFilter ? { filters: { brand: { brand_id: brandIdFilter } } } : {}),
+    ...(brandIdFilter ? { filters: { brand: { id: brandIdFilter } } } : {}),
   })
 
   const productBrand = new Map<string, string>()
@@ -95,14 +95,12 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "id",
       "status",
       "created_at",
-      "currency_code",
       "items.product_id",
       "items.total",
     ],
   })
 
   const today = startOfToday()
-  let totalSalesToday = 0
   let totalOrdersToday = 0
   let pendingOrders = 0
 
@@ -132,9 +130,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   res.json({
     metrics: {
-      total_sales_today: brandIdFilter
-        ? by_brand.reduce((s, b) => s + b.total_sales, 0)
-        : totalSalesToday || by_brand.reduce((s, b) => s + b.total_sales, 0),
+      // summed from per-brand buckets; a global order.total would double-count mixed-brand orders
+      total_sales_today: by_brand.reduce((s, b) => s + b.total_sales, 0),
       total_orders_today: brandIdFilter
         ? by_brand.reduce((s, b) => s + b.orders_today, 0)
         : totalOrdersToday,
