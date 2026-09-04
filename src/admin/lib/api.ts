@@ -126,31 +126,6 @@ export async function fetchProducts(params: {
 }
 
 /**
- * Fetch orders with brand filter
- */
-export async function fetchOrders(params: {
-  brand_id?: string
-  limit?: number
-  offset?: number
-  status?: string
-}) {
-  const searchParams = new URLSearchParams()
-
-  if (params.brand_id) searchParams.set("brand_id", params.brand_id)
-  if (params.limit) searchParams.set("limit", String(params.limit))
-  if (params.offset) searchParams.set("offset", String(params.offset))
-  if (params.status) searchParams.set("status", params.status)
-
-  const response = await fetch(`${API_BASE}/orders?${searchParams}`)
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch orders")
-  }
-
-  return response.json()
-}
-
-/**
  * Fetch low stock products
  */
 export async function fetchLowStockProducts(brandId?: string, threshold = 10) {
