@@ -42,10 +42,11 @@ const MetricCard = ({ title, value, subtitle, trend, color }: MetricCardProps) =
 )
 
 const formatCurrency = (amount: number, currency = "MXN") => {
+  // Medusa v2 stores `amount` in decimal (major units), not cents.
   return new Intl.NumberFormat("es-MX", {
     style: "currency",
     currency,
-  }).format(amount / 100)
+  }).format(amount)
 }
 
 const DashboardMetricsWidget = () => {

@@ -209,8 +209,10 @@ export default async function seed({ container }: ExecArgs) {
     shippingProfile = result[0]
   }
 
-  // Shipping options — standard + express, priced in MXN (centavos, matching
-  // the product price convention already used in this seed).
+  // Shipping options — standard + express, priced in MXN. Medusa v2's money
+  // model stores `amount` in decimal (major units), not cents — see
+  // node_modules/@medusajs/dashboard/src/lib/money-amount-helpers.ts and the
+  // data-grid currency cell, neither of which scale by 100.
   const existingShippingOptions = await fulfillmentModule.listShippingOptions({
     name: ["Envío Estándar", "Envío Exprés"],
   })
@@ -229,8 +231,8 @@ export default async function seed({ container }: ExecArgs) {
             code: "standard",
           },
           prices: [
-            { currency_code: "mxn", amount: 9900 },
-            { region_id: region.id, amount: 9900 },
+            { currency_code: "mxn", amount: 99 },
+            { region_id: region.id, amount: 99 },
           ],
           rules: [
             { attribute: "enabled_in_store", value: "true", operator: "eq" },
@@ -249,8 +251,8 @@ export default async function seed({ container }: ExecArgs) {
             code: "express",
           },
           prices: [
-            { currency_code: "mxn", amount: 19900 },
-            { region_id: region.id, amount: 19900 },
+            { currency_code: "mxn", amount: 199 },
+            { region_id: region.id, amount: 199 },
           ],
           rules: [
             { attribute: "enabled_in_store", value: "true", operator: "eq" },
@@ -505,7 +507,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["urban-street"].id,
       title: "Camiseta Grafitti",
       description: "Camiseta de algodón premium con estampado de grafitti exclusivo. Perfecta para un look urbano y desenfadado.",
-      base_price: 45000,
+      base_price: 450,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["playeras"].id, categories["manga-corta"].id, categories["urban-streetwear"].id],
@@ -524,7 +526,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["urban-street"].id,
       title: "Playera Oversized Minimal",
       description: "Playera oversized con corte relajado. Algodón 100% peinado para máxima comodidad.",
-      base_price: 52000,
+      base_price: 520,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["playeras"].id, categories["urban-streetwear"].id],
@@ -543,7 +545,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["urban-street"].id,
       title: "T-Shirt Neon Dreams",
       description: "Diseño exclusivo con estampado neón que brilla en la oscuridad. Edición limitada.",
-      base_price: 65000,
+      base_price: 650,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["playeras"].id, categories["edicion-limitada"].id, categories["urban-colaboraciones"].id],
@@ -561,7 +563,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["classic-threads"].id,
       title: "Polo Ejecutivo",
       description: "Polo de corte clásico con cuello reforzado. Ideal para ocasiones semi-formales.",
-      base_price: 68000,
+      base_price: 680,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["polos"].id, categories["classic-formal"].id],
@@ -584,7 +586,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["classic-threads"].id,
       title: "Camiseta Básica Premium",
       description: "La camiseta básica perfecta. Algodón Pima de alta calidad con acabado suave.",
-      base_price: 42000,
+      base_price: 420,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["playeras"].id, categories["manga-corta"].id, categories["classic-esenciales"].id],
@@ -607,7 +609,7 @@ export default async function seed({ container }: ExecArgs) {
       brand_id: brands["classic-threads"].id,
       title: "Henley Casual",
       description: "Camiseta estilo Henley con botones de madera. Look casual pero sofisticado.",
-      base_price: 55000,
+      base_price: 550,
       currency_code: "MXN",
       status: "published",
       category_ids: [categories["playeras"].id, categories["classic-casual"].id],

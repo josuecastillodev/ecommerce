@@ -107,10 +107,9 @@ const BrandProductsPage = () => {
 
   const formatPriceRange = (range: { min: number; max: number } | null) => {
     if (!range) return "—"
+    // Medusa v2 stores `amount` in decimal (major units), not cents.
     const fmt = (n: number) =>
-      new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(
-        n / 100
-      )
+      new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(n)
     return range.min === range.max ? fmt(range.min) : `${fmt(range.min)} – ${fmt(range.max)}`
   }
 
