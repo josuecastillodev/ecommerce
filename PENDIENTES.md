@@ -113,6 +113,13 @@ de una vez.
   sembrados.
 - Docstrings en `src/api/admin/brand-products/*.ts` todavía dicen
   `/admin/products` (rutas viejas antes del move).
+- `GET /store/products?brand_id=` sigue devolviendo 400 (`Unrecognized fields`):
+  el middleware nativo de Medusa sobre `/store/products` rechaza el param antes
+  de llegar al handler. El filtro de marca del storefront ya funciona por
+  `/store/brands/:slug/products`; si se quiere soportar `brand_id` en
+  `/store/products` hay que rodear ese middleware nativo (mismo patrón que el
+  des-shadow de `/admin/products`). El fix del key `{ brand: { id } }` en
+  `src/api/store/products/route.ts` ya quedó aplicado para cuando se desbloquee.
 
 ---
 
