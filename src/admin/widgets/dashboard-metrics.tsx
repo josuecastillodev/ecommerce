@@ -7,7 +7,8 @@ import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Text, Badge, clx } from "@medusajs/ui"
 import { useState, useEffect } from "react"
 import { useBrands } from "../hooks/use-brand"
-import type { BrandStats } from "../lib/types"
+import { fetchDashboardMetrics } from "../lib/api"
+import type { DashboardMetrics } from "../lib/types"
 
 interface MetricCardProps {
   title: string
@@ -49,42 +50,26 @@ const formatCurrency = (amount: number, currency = "MXN") => {
 
 const DashboardMetricsWidget = () => {
   const { brands, selectedBrand, isLoading: brandsLoading } = useBrands()
-  const [metrics, setMetrics] = useState<BrandStats[]>([])
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    loadMetrics()
+    let cancelled = false
+    setIsLoading(true)
+    fetchDashboardMetrics(selectedBrand?.id)
+      .then((m) => {
+        if (!cancelled) setMetrics(m)
+      })
+      .catch((error) => console.error("Failed to load metrics:", error))
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [selectedBrand])
 
-  const loadMetrics = async () => {
-    setIsLoading(true)
-    try {
-      // In a real implementation, this would call the metrics API
-      // For now, we'll simulate with mock data
-      const mockMetrics: BrandStats[] = brands.map((brand) => ({
-        brand_id: brand.id,
-        brand_name: brand.name,
-        total_sales: Math.floor(Math.random() * 10000000),
-        orders_today: Math.floor(Math.random() * 50),
-        orders_pending: Math.floor(Math.random() * 20),
-        products_count: Math.floor(Math.random() * 100) + 10,
-        low_stock_count: Math.floor(Math.random() * 10),
-        currency: "MXN",
-      }))
-
-      if (selectedBrand) {
-        setMetrics(mockMetrics.filter((m) => m.brand_id === selectedBrand.id))
-      } else {
-        setMetrics(mockMetrics)
-      }
-    } catch (error) {
-      console.error("Failed to load metrics:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  if (brandsLoading || isLoading) {
+  if (brandsLoading || isLoading || !metrics) {
     return (
       <Container className="p-6">
         <Text className="text-ui-fg-muted">Cargando métricas...</Text>
@@ -92,16 +77,12 @@ const DashboardMetricsWidget = () => {
     )
   }
 
-  // Calculate totals
-  const totals = metrics.reduce(
-    (acc, m) => ({
-      sales: acc.sales + m.total_sales,
-      orders: acc.orders + m.orders_today,
-      pending: acc.pending + m.orders_pending,
-      lowStock: acc.lowStock + m.low_stock_count,
-    }),
-    { sales: 0, orders: 0, pending: 0, lowStock: 0 }
-  )
+  const totals = {
+    sales: metrics.total_sales_today,
+    orders: metrics.total_orders_today,
+    pending: metrics.pending_orders,
+    lowStock: metrics.low_stock_products,
+  }
 
   return (
     <Container className="p-6">
@@ -145,13 +126,13 @@ const DashboardMetricsWidget = () => {
       </div>
 
       {/* Per-Brand Breakdown (only if viewing all brands) */}
-      {!selectedBrand && metrics.length > 1 && (
+      {!selectedBrand && metrics.by_brand.length > 1 && (
         <div>
           <Heading level="h2" className="mb-4">
             Por marca
           </Heading>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {metrics.map((brandMetrics) => {
+            {metrics.by_brand.map((brandMetrics) => {
               const brand = brands.find((b) => b.id === brandMetrics.brand_id)
               return (
                 <div
