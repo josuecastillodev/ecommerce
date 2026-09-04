@@ -21,33 +21,35 @@ interface LowStockProduct {
 const LOW_STOCK_THRESHOLD = 10
 
 const LowStockAlertWidget = () => {
-  const { brands, selectedBrand } = useBrands()
+  const { selectedBrand } = useBrands()
   const [products, setProducts] = useState<LowStockProduct[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    loadLowStockProducts()
-  }, [selectedBrand])
-
-  const loadLowStockProducts = async () => {
+    let cancelled = false
     setIsLoading(true)
-    try {
-      const data = await fetchLowStockProducts(selectedBrand?.id, LOW_STOCK_THRESHOLD)
-      const rows: LowStockProduct[] = (data.products || []).map((p: any) => ({
-        id: p.id,
-        title: p.title,
-        sku: p.variants?.[0]?.sku ?? "—",
-        stock: p.total_stock ?? 0,
-        brand_name: p.brand?.name ?? "Sin marca",
-        brand_color: p.brand?.primary_color ?? "#888",
-      }))
-      setProducts(rows)
-    } catch (error) {
-      console.error("Failed to load low stock products:", error)
-    } finally {
-      setIsLoading(false)
+    fetchLowStockProducts(selectedBrand?.id, LOW_STOCK_THRESHOLD)
+      .then((data) => {
+        if (!cancelled) {
+          const rows: LowStockProduct[] = (data.products || []).map((p: any) => ({
+            id: p.id,
+            title: p.title,
+            sku: p.variants?.[0]?.sku ?? "—",
+            stock: p.total_stock ?? 0,
+            brand_name: p.brand?.name ?? "Sin marca",
+            brand_color: p.brand?.primary_color ?? "#888",
+          }))
+          setProducts(rows)
+        }
+      })
+      .catch((error) => console.error("Failed to load low stock products:", error))
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+    return () => {
+      cancelled = true
     }
-  }
+  }, [selectedBrand])
 
   if (isLoading) {
     return (
