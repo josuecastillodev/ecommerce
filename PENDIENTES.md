@@ -21,19 +21,23 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Admin dashboard — tipado (#1a)** | PR #6 (`fix/admin-react-types`) | Faltaban `@types/react`/`@types/react-dom` y `lib: ["DOM"]` en `tsconfig.json` (~350 de los ~360 errores). 3 widgets usaban injection zones inexistentes en 2.20 (`home.before/after`, `nav.top.before`) → movidos a `product.list.*` como stopgap. |
 | **Admin dashboard — pantallas y datos reales (#1b)** | PR #7 (`fix/admin-screens-verify`) | Verificado en navegador y arreglado: la API custom de producto tapaba las pantallas **nativas** de Productos (`GET /admin/products` con middleware estricto → 400 en los params que el admin nativo siempre manda) — movida a `/admin/brand-products*`. La pantalla "Productos por Marca" leía campos que la API no devuelve (`brand_id`, `base_price`, `variants_count`) → `brand`, `price_range`, `variant_count`. `total_stock` pasó de estar siempre en 0 a calcularse real desde `location_levels`. Nuevo endpoint `GET /admin/dashboard/metrics` con agregación real. Bug del filtro de marca por link (`{ brand: { brand_id } }` en vez de `{ brand: { id } }`) corregido en 3 rutas. Widgets `dashboard-metrics` y `low-stock-alert` dejaron de usar mock (`Math.random()` / arrays hardcodeados). |
 | **Convención de precios (centavos → decimal)** | — | Medusa 2.x guarda `amount` en **decimal** (unidad mayor: pesos, no centavos) — confirmado contra `@medusajs/dashboard` (`money-amount-helpers.ts` y el `data-grid-currency-cell`, que formatean/editan `amount` tal cual, sin dividir por 100). El seed y dos vistas del admin custom asumían centavos y quedó mezclado: `seed.ts` sembraba `base_price: 45000` / envíos en `9900`-`19900`, mientras `brand-products/page.tsx` y `dashboard-metrics.tsx` dividían `amount / 100` al mostrarlo (compensando, pero solo en las pantallas custom — el admin nativo de Medusa habría mostrado $45,000.00 en vez de $450.00). Corregido: `seed.ts` ahora siembra en decimal (`base_price: 450`, envíos `99`/`199`) y las dos vistas custom dejaron de dividir entre 100. |
+| **Checkout end-to-end — cart → shipping → payment → orden** | — | Probado con curl contra el provider manual (`pp_system_default`); dos bugs bloqueaban **cualquier** checkout, sin importar el método de pago: (1) `seed.ts` creaba la tax region de MX sin `provider_id` → 500 "Unable to retrieve the tax provider with id: null" al primer line item (Medusa solo asigna `tp_system` por default a regiones que ya existían al momento de migrar, no a las que crea el seed después). Corregido pasando `provider_id: "tp_system"` explícito. (2) `createProductWithBrandWorkflow` nunca seteaba `shipping_profile_id` al crear productos → `product_shipping_profile` quedaba vacío → 400 "cart items require shipping profiles that are not satisfied by the current shipping methods" al completar el cart, para **todo** producto creado por el seed o por el admin. Corregido: el workflow ahora resuelve el shipping profile default (`resolveShippingProfileStep`) y lo linkea. Con ambos fixes, el flujo completo (cart → line item → dirección → shipping method → payment collection → payment session `pp_system_default` → complete) genera la orden correctamente, con totales en decimal ($999 = $900 producto + $99 envío). |
 
 ---
 
 ## 🔴 Pendientes
 
-### 1. Checkout end-to-end con Stripe / OXXO — sin probar
+### 1. Checkout con Stripe / OXXO — bloqueado solo por falta de llaves reales
 
-El provider está configurado y los datos base sembrados, pero falta el flujo
-completo: crear cart → añadir line items → set shipping → crear payment
-collection → payment session (`stripe` u `stripe-oxxo`) → confirmar. Necesita
+La mecánica de checkout (cart → shipping → payment collection → orden) ya
+está verificada end-to-end (ver tabla de arriba). Lo único que falta es
+probar los providers `stripe` (tarjetas) y `stripe-oxxo` con una cuenta de
+Stripe real: al crear la payment session con `pp_stripe-oxxo_stripe` usando
+el placeholder del `.env`, Stripe responde `Invalid API Key provided:
+sk_test_******************_key` — exactamente el punto donde se necesitan
 claves reales de Stripe test (`STRIPE_API_KEY`, `STRIPE_PUBLISHABLE_KEY`,
-`STRIPE_WEBHOOK_SECRET`) y, para webhooks en local, un túnel (ngrok) apuntando
-a `/hooks/payment/stripe`.
+`STRIPE_WEBHOOK_SECRET`) y, para probar webhooks en local, un túnel (ngrok)
+apuntando a `/hooks/payment/stripe`.
 
 ### 2. Varios
 
@@ -144,4 +148,45 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9000/store/customers/m
   -H "x-publishable-api-key: $PK" -H "authorization: Bearer $TOKEN" -H "x-brand-id: $BRAND_URBAN"
 
 # marca ajena → 403 "No tienes acceso a esta marca"
+```
+
+### Smoke test del checkout (provider manual)
+
+Verificado end-to-end con esto — con `pp_system_default` no necesita claves de
+Stripe. Para probar `stripe`/`stripe-oxxo` en vez de `pp_system_default` hace
+falta un `STRIPE_API_KEY` de test real en `.env`.
+
+```bash
+PK="<publishable key del seed>"
+REGION="<id de la región México>"       # select id from region
+VARIANT="<id de una variante>"          # select id from product_variant limit 1
+SHIP_OPT="<id de un shipping option>"   # select id from shipping_option
+
+CART=$(curl -s -X POST http://localhost:9000/store/carts \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d "{\"region_id\":\"$REGION\"}" | jq -r .cart.id)
+
+curl -s -X POST http://localhost:9000/store/carts/$CART/line-items \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d "{\"variant_id\":\"$VARIANT\",\"quantity\":1}" > /dev/null
+
+curl -s -X POST http://localhost:9000/store/carts/$CART \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d '{"email":"buyer@test.mx","shipping_address":{"first_name":"Ana","last_name":"Test","address_1":"Av. Reforma 1","city":"CDMX","country_code":"mx","postal_code":"06600"}}' > /dev/null
+
+curl -s -X POST http://localhost:9000/store/carts/$CART/shipping-methods \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d "{\"option_id\":\"$SHIP_OPT\"}" > /dev/null
+
+PC=$(curl -s -X POST http://localhost:9000/store/payment-collections \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d "{\"cart_id\":\"$CART\"}" | jq -r .payment_collection.id)
+
+curl -s -X POST http://localhost:9000/store/payment-collections/$PC/payment-sessions \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
+  -d '{"provider_id":"pp_system_default"}' > /dev/null
+
+# → { "type": "order", "order": { "status": "pending", ... } }
+curl -s -X POST http://localhost:9000/store/carts/$CART/complete \
+  -H 'content-type: application/json' -H "x-publishable-api-key: $PK" | jq .
 ```
