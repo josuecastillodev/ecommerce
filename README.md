@@ -20,9 +20,9 @@ Plataforma de e-commerce multi-marca construida con Medusa.js 2.0.
 
 ## Requisitos
 
-- Node.js >= 20
+- Node.js 20 o 22 (ver `.nvmrc`)
 - Docker y Docker Compose
-- npm o yarn
+- pnpm
 
 ## Instalación
 
@@ -49,28 +49,34 @@ docker-compose --profile dev up -d
 ### 3. Instalar dependencias
 
 ```bash
-npm install
+pnpm install
 ```
 
 ### 4. Ejecutar migraciones
 
 ```bash
-npm run db:migrate
+pnpm run db:migrate
 ```
 
 ### 5. Seed de datos iniciales
 
 ```bash
-npm run seed
+pnpm run seed
 ```
 
-### 6. Iniciar servidor de desarrollo
+### 6. Crear usuario admin (no lo crea el seed)
 
 ```bash
-npm run dev
+npx medusa user -e admin@example.com -p supersecret
 ```
 
-El servidor estará disponible en `http://localhost:9000`
+### 7. Iniciar servidor de desarrollo
+
+```bash
+pnpm run dev
+```
+
+El servidor estará disponible en `http://localhost:9000` (admin en `/app`)
 
 ## Estructura del Proyecto
 
@@ -104,12 +110,31 @@ El servidor estará disponible en `http://localhost:9000`
 - `GET /admin/brands/:id` - Obtener marca
 - `POST /admin/brands/:id` - Actualizar marca
 - `DELETE /admin/brands/:id` - Eliminar marca
+- `GET /admin/brand-products` / `GET /admin/brand-products/:id` - Productos con datos de marca y stock (des-shadow de las pantallas nativas de Productos)
+- `GET /admin/dashboard/metrics` - Métricas agregadas por marca (productos, inventario, pedidos)
 
 ### Store
 
 - `GET /store/brands` - Listar marcas activas
 - `GET /store/brands/:slug` - Obtener marca por slug
 - `GET /store/brands/:slug/products` - Productos de una marca
+- `GET/POST /store/customers/me/brand` - Marca y preferencias del cliente autenticado
+
+### Auth y clientes
+
+El auth de clientes usa las rutas **nativas** de Medusa (no hay `/store/auth`
+ni `/store/customers` custom):
+
+- `POST /auth/customer/emailpass` - Login
+- `POST /auth/customer/emailpass/register` - Registro
+- `GET/POST /store/customers`, `GET/POST /store/customers/me*` - Perfil, direcciones
+- `GET /store/orders` - Pedidos del cliente
+
+La capa multi-marca se aplica encima con un middleware
+(`validateCustomerBrand` en `src/utils/brand-middleware.ts`) que compara el
+header `X-Brand-Id` contra la marca del cliente y responde `403` si no
+coinciden, más un subscriber (`customer-created.ts`) que asocia cada cliente
+nuevo a su marca desde `metadata.brand_id`.
 
 ## Modelo de Datos - Brand
 
@@ -139,20 +164,20 @@ NEXT_PUBLIC_BRAND_SLUG=urban-street  # o classic-threads
 ### Generar migraciones
 
 ```bash
-npm run db:generate
+pnpm run db:generate <module>
 ```
 
 ### Ejecutar tests
 
 ```bash
-npm test
+pnpm test
 ```
 
 ### Build para producción
 
 ```bash
-npm run build
-npm start
+pnpm run build
+pnpm start
 ```
 
 ## Deploy
