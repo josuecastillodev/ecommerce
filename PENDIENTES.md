@@ -22,26 +22,14 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Admin dashboard — pantallas y datos reales (#1b)** | PR #7 (`fix/admin-screens-verify`) | Verificado en navegador y arreglado: la API custom de producto tapaba las pantallas **nativas** de Productos (`GET /admin/products` con middleware estricto → 400 en los params que el admin nativo siempre manda) — movida a `/admin/brand-products*`. La pantalla "Productos por Marca" leía campos que la API no devuelve (`brand_id`, `base_price`, `variants_count`) → `brand`, `price_range`, `variant_count`. `total_stock` pasó de estar siempre en 0 a calcularse real desde `location_levels`. Nuevo endpoint `GET /admin/dashboard/metrics` con agregación real. Bug del filtro de marca por link (`{ brand: { brand_id } }` en vez de `{ brand: { id } }`) corregido en 3 rutas. Widgets `dashboard-metrics` y `low-stock-alert` dejaron de usar mock (`Math.random()` / arrays hardcodeados). |
 | **Convención de precios (centavos → decimal)** | — | Medusa 2.x guarda `amount` en **decimal** (unidad mayor: pesos, no centavos) — confirmado contra `@medusajs/dashboard` (`money-amount-helpers.ts` y el `data-grid-currency-cell`, que formatean/editan `amount` tal cual, sin dividir por 100). El seed y dos vistas del admin custom asumían centavos y quedó mezclado: `seed.ts` sembraba `base_price: 45000` / envíos en `9900`-`19900`, mientras `brand-products/page.tsx` y `dashboard-metrics.tsx` dividían `amount / 100` al mostrarlo (compensando, pero solo en las pantallas custom — el admin nativo de Medusa habría mostrado $45,000.00 en vez de $450.00). Corregido: `seed.ts` ahora siembra en decimal (`base_price: 450`, envíos `99`/`199`) y las dos vistas custom dejaron de dividir entre 100. |
 | **Checkout end-to-end — cart → shipping → payment → orden** | — | Probado con curl contra el provider manual (`pp_system_default`); dos bugs bloqueaban **cualquier** checkout, sin importar el método de pago: (1) `seed.ts` creaba la tax region de MX sin `provider_id` → 500 "Unable to retrieve the tax provider with id: null" al primer line item (Medusa solo asigna `tp_system` por default a regiones que ya existían al momento de migrar, no a las que crea el seed después). Corregido pasando `provider_id: "tp_system"` explícito. (2) `createProductWithBrandWorkflow` nunca seteaba `shipping_profile_id` al crear productos → `product_shipping_profile` quedaba vacío → 400 "cart items require shipping profiles that are not satisfied by the current shipping methods" al completar el cart, para **todo** producto creado por el seed o por el admin. Corregido: el workflow ahora resuelve el shipping profile default (`resolveShippingProfileStep`) y lo linkea. Con ambos fixes, el flujo completo (cart → line item → dirección → shipping method → payment collection → payment session `pp_system_default` → complete) genera la orden correctamente, con totales en decimal ($999 = $900 producto + $99 envío). |
-| **Checkout con Stripe (tarjetas) — verificado con llaves de test reales** | — | Con `STRIPE_API_KEY`/`STRIPE_PUBLISHABLE_KEY` de test puestas en `.env`: `pp_stripe_stripe` crea un `PaymentIntent` real en modo test; confirmado directo contra la API de Stripe con una tarjeta de prueba (`tok_visa`) → `succeeded`. Al completar el cart, Medusa reconoce el pago (orden con `paid_total` = `accounting_total`, `pending_difference: 0`) y el `payment` queda `captured_at` con su `capture` registrado en DB por el monto correcto. Flujo de tarjeta completo, sin necesitar webhook (la captura ocurre síncrona al completar el cart). Nota aparte: el subscriber `payment-captured.ts` (evento `payment.captured`) no dejó log durante esta prueba pese a que la captura sí ocurrió — sin confirmar si el auto-capture sincrónico pasa por el mismo camino de eventos que la captura vía workflow admin; anotado en "Varios" para revisar si se necesita esa notificación. |
+| **Checkout con Stripe (tarjetas) — verificado con llaves de test reales** | — | Con `STRIPE_API_KEY`/`STRIPE_PUBLISHABLE_KEY` de test puestas en `.env`: `pp_stripe_stripe` crea un `PaymentIntent` real en modo test; confirmado directo contra la API de Stripe con una tarjeta de prueba (`tok_visa`) → `succeeded`. Al completar el cart, Medusa reconoce el pago (orden con `paid_total` = `accounting_total`, `pending_difference: 0`) y el `payment` queda `captured_at` con su `capture` registrado en DB por el monto correcto. Flujo de tarjeta completo, sin necesitar webhook (la captura ocurre síncrona al completar el cart). |
+| **Checkout con OXXO — confirmación async por webhook, verificada con ngrok** | — | Túnel `ngrok http 9000` + webhook endpoint real creado en Stripe (API) apuntando a `/hooks/payment/<provider>_stripe`. Encontrado un bug de configuración (no de código): el webhook nativo de Medusa (`payment-webhook.ts`) resuelve el provider como `pp_${eventData.provider}`, tomando el segmento de la URL literal — con `@medusajs/payment-stripe` (que registra **múltiples** sub-providers desde un solo `id: "stripe"` en `medusa-config.ts`: `pp_stripe_stripe` para tarjetas, `pp_stripe-oxxo_stripe` para OXXO) la URL correcta **no** es `/hooks/payment/stripe` sino `/hooks/payment/stripe-oxxo_stripe` (OXXO) o `/hooks/payment/stripe_stripe` (tarjetas) — apuntar a `/hooks/payment/stripe` a secas siempre falla con `AwilixResolutionError: Could not resolve 'pp_stripe'`. Corregida la URL del webhook, el flujo completo funcionó dos veces seguidas de punta a punta sin intervención manual: cart → OXXO payment session → confirmar con `payment_method` tipo `oxxo` en Stripe → voucher generado → Stripe simula el pago en modo test (~2 min) → webhook `payment_intent.succeeded` llega vía ngrok → Medusa captura el pago → `POST .../complete` genera la orden (`paid_total` = `accounting_total`, `pending_difference: 0`). Observación menor: el *primer* intento de procesar cada webhook entrante falló (silenciosamente recuperado por el retry nativo de Medusa, `attempts: 3` en la config del webhook), y solo el reintento tuvo éxito — las 2 veces que se probó. No bloquea nada (Medusa ya reintenta automáticamente) pero vale la pena monitorear en producción si nunca se recupera tras 3 intentos. |
 
 ---
 
 ## 🔴 Pendientes
 
-### 1. Checkout con OXXO — falta probar la confirmación async por webhook
-
-Con llaves de test reales, probado hasta donde se puede sin exponer un
-endpoint público: `pp_stripe-oxxo_stripe` crea el payment intent en Stripe
-(modo test) y, confirmándolo directo contra la API de Stripe con un
-`payment_method` de tipo `oxxo`, genera un voucher real (`hosted_voucher_url`,
-número, vencimiento). Lo que falta es la mitad asíncrona: cuando el cliente
-paga en efectivo en la tienda OXXO, Stripe notifica por webhook
-(`payment_intent.succeeded` → `/hooks/payment/stripe`) y ahí es donde Medusa
-debe capturar el pago y avanzar la orden. Eso necesita un túnel público
-(ngrok) apuntando a `/hooks/payment/stripe` para poder probarse en local — no
-se pudo verificar en esta sesión.
-
-### 2. Varios
+### 1. Varios
 
 - `src/utils/brand-middleware.ts` exporta `requireBrandId`,
   `validateCartBrandAccess`, `optionalBrandId` sin cablear — toolkit pensado
@@ -54,14 +42,16 @@ se pudo verificar en esta sesión.
 - `pk_*` publishable key y credenciales de prueba están en la salida del seed;
   no hay `.nvmrc` (Node del sistema es v24; Medusa 2.20 soporta 20/22, arrancó
   igual).
-- `src/subscribers/payment-captured.ts` no dejó log durante un pago con
-  tarjeta capturado síncronamente al completar el cart (el `payment` sí quedó
-  `captured_at` en DB). Confirmar si el auto-capture del provider (`capture:
-  true`) emite el evento `payment.captured` o si solo se emite vía el
-  `capturePaymentWorkflow` (captura manual desde el admin) — importa si se
-  agrega lógica ahí (notificar al cliente, etc.).
+- **Confirmado** (ver fila de "Checkout con Stripe/OXXO" en la tabla de
+  arriba): `src/subscribers/payment-captured.ts` sí dispara para la captura
+  vía webhook (OXXO), pero **no** para el auto-capture síncrono de tarjetas al
+  completar el cart — el pago igual queda `captured_at` en DB en ambos casos,
+  solo que uno pasa por el camino que emite el evento y el otro no. Si se
+  agrega lógica en ese subscriber (notificar al cliente, etc.), no puede
+  depender solo de él para tarjetas; revisar `payment.captured` vs. leer el
+  estado directo del pago.
 
-### 3. Follow-ups del admin dashboard (derivados del review de PR #7)
+### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
 - `src/api/admin/dashboard/metrics/route.ts`: las queries de productos y pedidos
   no tienen `pagination` — cargan todo el catálogo y todos los pedidos en
@@ -223,6 +213,37 @@ PM_ID=$(curl -s https://api.stripe.com/v1/payment_methods -u "$STRIPE_KEY:" \
   -d "type=oxxo" -d "billing_details[email]=buyer@test.mx" -d "billing_details[name]=Ana Test" | jq -r .id)
 curl -s https://api.stripe.com/v1/payment_intents/$PI_ID/confirm -u "$STRIPE_KEY:" \
   -d "payment_method=$PM_ID" | jq '.next_action.oxxo_display_details.hosted_voucher_url'
-# → la mitad async (voucher pagado en tienda → webhook → orden capturada)
-# necesita ngrok apuntando a /hooks/payment/stripe; no probado aún.
+```
+
+Para probar la mitad async (voucher pagado → webhook → orden capturada) en
+local:
+
+```bash
+# 1. Túnel público
+ngrok http 9000
+# → anota la URL https, ej. https://xxxx.ngrok-free.dev
+
+# 2. Webhook endpoint en Stripe — OJO con la ruta: NO es /hooks/payment/stripe,
+#    es /hooks/payment/<provider_id sin el "pp_">. Con la config de este repo
+#    (un solo `id: "stripe"` en medusa-config.ts que registra los sub-providers
+#    "stripe" y "stripe-oxxo"), las rutas correctas son:
+#      tarjetas → /hooks/payment/stripe_stripe
+#      OXXO     → /hooks/payment/stripe-oxxo_stripe
+#    (apuntar a /hooks/payment/stripe a secas falla siempre con
+#    "AwilixResolutionError: Could not resolve 'pp_stripe'")
+curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_KEY:" \
+  -d "url=https://xxxx.ngrok-free.dev/hooks/payment/stripe-oxxo_stripe" \
+  -d "enabled_events[]=payment_intent.succeeded" \
+  -d "enabled_events[]=payment_intent.payment_failed" | jq '.id, .secret'
+# → pegar el .secret como STRIPE_WEBHOOK_SECRET en .env y reiniciar el server
+
+# 3. Confirmar el payment intent con un payment_method oxxo (paso anterior) y
+#    esperar ~2 min: Stripe test mode simula el pago del voucher solo.
+#    El webhook llega solo; luego POST /store/carts/$CART/complete genera la
+#    orden con paid_total = total. El primer intento de procesar el webhook
+#    puede fallar (log "Retrying payment.webhook_received...") — es normal,
+#    el retry automático de Medusa (attempts: 3) lo recupera.
+
+# 4. Limpieza: borrar el webhook endpoint temporal cuando termines
+curl -s -X DELETE https://api.stripe.com/v1/webhook_endpoints/<id> -u "$STRIPE_KEY:"
 ```
