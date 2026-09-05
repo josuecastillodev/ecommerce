@@ -6,7 +6,7 @@
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
-import { productValidators } from "../../../modules/product-extension"
+import { productValidators, VARIANT_STOCK_FIELDS, calculateTotalStock } from "../../../modules/product-extension"
 import { createProductWithBrandWorkflow } from "../../../workflows/create-product-with-brand"
 
 // GET /admin/products - List all products with filters
@@ -78,8 +78,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.sku",
       "variants.prices.*",
       "variants.options.*",
-      "variants.inventory_items.inventory.location_levels.stocked_quantity",
-      "variants.inventory_items.inventory.location_levels.reserved_quantity",
+      ...VARIANT_STOCK_FIELDS,
       "categories.id",
       "categories.name",
       "categories.handle",
@@ -103,17 +102,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     const variants = product.variants || []
     const prices = variants.flatMap((v: any) => v.prices?.map((p: any) => p.amount) || [])
 
-    const totalStock = variants.reduce((sum: number, v: any) => {
-      const levels =
-        v.inventory_items?.flatMap(
-          (ii: any) => ii.inventory?.location_levels ?? []
-        ) ?? []
-      const available = levels.reduce(
-        (s: number, l: any) => s + ((l.stocked_quantity ?? 0) - (l.reserved_quantity ?? 0)),
-        0
-      )
-      return sum + available
-    }, 0)
+    const totalStock = calculateTotalStock(variants)
 
     return {
       ...product,

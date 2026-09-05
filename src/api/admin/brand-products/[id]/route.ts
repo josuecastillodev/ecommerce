@@ -8,7 +8,7 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { updateProductsWorkflow, deleteProductsWorkflow } from "@medusajs/medusa/core-flows"
-import { productValidators } from "../../../../modules/product-extension"
+import { productValidators, VARIANT_STOCK_FIELDS, calculateVariantStock, calculateTotalStock } from "../../../../modules/product-extension"
 
 // GET /admin/products/:id - Get single product with full details
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -35,7 +35,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.sku",
       "variants.prices.*",
       "variants.options.*",
-      "variants.inventory_quantity",
+      ...VARIANT_STOCK_FIELDS,
       "categories.*",
       "brand.*",
     ],
@@ -58,6 +58,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       (o: any) => o.option?.title === "Color"
     )
 
+    const stock = calculateVariantStock(variant)
+
     return {
       ...variant,
       size: sizeOption?.value || null,
@@ -65,7 +67,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         name: colorOption?.value || null,
         hex_code: variant.metadata?.color_hex || null,
       },
-      in_stock: (variant.inventory_quantity || 0) > 0,
+      stock,
+      in_stock: stock > 0,
     }
   }) || []
 
@@ -73,10 +76,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     product: {
       ...product,
       variants: enrichedVariants,
-      total_stock: enrichedVariants.reduce(
-        (sum: number, v: any) => sum + (v.inventory_quantity || 0),
-        0
-      ),
+      total_stock: calculateTotalStock(product.variants || []),
     },
   })
 }

@@ -9,6 +9,7 @@
  */
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { VARIANT_STOCK_FIELDS, calculateTotalStock } from "../../../../modules/product-extension"
 
 const LOW_STOCK_THRESHOLD = 10
 
@@ -57,12 +58,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   // --- Products + inventory per brand ---
   const { data: products } = await query.graph({
     entity: "product",
-    fields: [
-      "id",
-      "brand.id",
-      "variants.inventory_items.inventory.location_levels.stocked_quantity",
-      "variants.inventory_items.inventory.location_levels.reserved_quantity",
-    ],
+    fields: ["id", "brand.id", ...VARIANT_STOCK_FIELDS],
     ...(brandIdFilter ? { filters: { brand: { id: brandIdFilter } } } : {}),
   })
 
@@ -73,18 +69,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     productBrand.set(p.id, bId)
     const bucket = buckets.get(bId)!
     bucket.products_count += 1
-    const stock = (p.variants || []).reduce((sum: number, v: any) => {
-      const levels =
-        v.inventory_items?.flatMap((ii: any) => ii.inventory?.location_levels ?? []) ?? []
-      return (
-        sum +
-        levels.reduce(
-          (s: number, l: any) =>
-            s + ((l.stocked_quantity ?? 0) - (l.reserved_quantity ?? 0)),
-          0
-        )
-      )
-    }, 0)
+    const stock = calculateTotalStock(p.variants || [])
     if (stock <= LOW_STOCK_THRESHOLD) bucket.low_stock_count += 1
   }
 

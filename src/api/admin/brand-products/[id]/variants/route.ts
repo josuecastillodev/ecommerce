@@ -6,7 +6,7 @@
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
-import { productValidators, AVAILABLE_SIZES } from "../../../../../modules/product-extension"
+import { productValidators, AVAILABLE_SIZES, VARIANT_STOCK_FIELDS, calculateVariantStock } from "../../../../../modules/product-extension"
 import { addVariantToProductWorkflow } from "../../../../../workflows/add-variant-to-product"
 
 // GET /admin/products/:id/variants - List all variants for a product
@@ -24,7 +24,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.sku",
       "variants.prices.*",
       "variants.options.*",
-      "variants.inventory_quantity",
+      ...VARIANT_STOCK_FIELDS,
       "brand.id",
       "brand.name",
       "brand.slug",
@@ -48,6 +48,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       (o: any) => o.option?.title === "Color"
     )
 
+    const stock = calculateVariantStock(variant)
+
     return {
       id: variant.id,
       sku: variant.sku,
@@ -57,9 +59,9 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
         name: colorOption?.value || null,
         hex_code: variant.metadata?.color_hex || null,
       },
-      stock: variant.inventory_quantity || 0,
+      stock,
       prices: variant.prices,
-      in_stock: (variant.inventory_quantity || 0) > 0,
+      in_stock: stock > 0,
       created_at: variant.created_at,
       updated_at: variant.updated_at,
     }
