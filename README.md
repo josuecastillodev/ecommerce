@@ -152,12 +152,21 @@ nuevo a su marca desde `metadata.brand_id`.
 
 ## Configuración de Storefronts
 
-Cada storefront (Next.js) debe configurarse con:
+Cada marca tiene su **propio sales channel y su propia publishable key** (las
+imprime `pnpm run seed` al final). Cada storefront Next.js se configura con la
+key de su marca:
 
 ```env
 NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://localhost:9000
-NEXT_PUBLIC_BRAND_SLUG=urban-street  # o classic-threads
+NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_...   # la de "Urban Street Storefront" o "Classic Threads Storefront"
+NEXT_PUBLIC_BRAND_SLUG=urban-street          # o classic-threads
 ```
+
+Con eso, `/store/products`, `/store/carts` y el checkout quedan aislados por
+marca de forma nativa (Medusa filtra por el sales channel de la key). El header
+`X-Brand-Id` se sigue enviando en las llamadas autenticadas de cliente
+(`/store/customers/me*`, `/store/orders*`), que se validan contra la marca
+asociada al cliente.
 
 ## Desarrollo
 
