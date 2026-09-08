@@ -134,45 +134,6 @@ export function validateCustomerBrand() {
 }
 
 /**
- * Middleware to check if a customer can perform a cart/order action
- * Validates that products in cart belong to customer's brand
- */
-export function validateCartBrandAccess() {
-  return async (
-    req: MedusaRequest,
-    res: MedusaResponse,
-    next: MedusaNextFunction
-  ) => {
-    const brandId = extractBrandId(req)
-    const customerId = (req as any).auth_context?.actor_id
-
-    if (!customerId || !brandId) {
-      return next()
-    }
-
-    const customerBrandService: CustomerBrandModuleService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
-
-    try {
-      const customerBrandId = await customerBrandService.getCustomerBrandId(customerId)
-
-      if (customerBrandId && customerBrandId !== brandId) {
-        return res.status(403).json({
-          type: "forbidden",
-          message: "No puedes comprar productos de otra marca.",
-        })
-      }
-
-      next()
-    } catch (error) {
-      return res.status(500).json({
-        type: "server_error",
-        message: "Error al validar acceso al carrito.",
-      })
-    }
-  }
-}
-
-/**
  * Optional brand extraction middleware
  * Extracts brand_id if present but doesn't require it
  */

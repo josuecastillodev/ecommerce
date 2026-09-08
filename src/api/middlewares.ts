@@ -93,8 +93,6 @@ const listProductsQuerySchema = z.object({
   threshold: z.coerce.number().min(0).optional(),
 })
 
-const storeProductsQuerySchema = listProductsQuerySchema.omit({ status: true })
-
 // Category validation schemas
 const createCategorySchema = z.object({
   name: z.string().min(1, "Name is required").max(100),
@@ -225,17 +223,6 @@ export default defineMiddlewares({
             sizes: z.string().optional(),
             in_stock: z.enum(["true", "false"]).optional(),
           }), LIST_QUERY_CONFIG),
-      ],
-    },
-
-    // ====================
-    // Store Product Routes
-    // ====================
-    {
-      matcher: "/store/products",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(storeProductsQuerySchema, LIST_QUERY_CONFIG),
       ],
     },
 
