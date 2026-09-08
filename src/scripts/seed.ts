@@ -713,12 +713,8 @@ export default async function seed({ container }: ExecArgs) {
     fields: ["id", "title", "brand.slug", "sales_channels.id"],
   })
 
-  // Set de channelIds "válidos" = los de marca.
-  const brandChannelIds = new Set(
-    Object.values(brandChannels).map((bc) => bc.channelId)
-  )
-
   const productsWithoutBrand: string[] = []
+  let linkedCount = 0
 
   for (const p of allProducts as any[]) {
     const slug = p.brand?.slug
@@ -730,25 +726,38 @@ export default async function seed({ container }: ExecArgs) {
     const current: string[] = (p.sales_channels ?? []).map((c: any) => c.id)
     const toAdd = current.includes(target) ? [] : [target]
     const toRemove = current.filter((id) => id !== target)
-    if (toAdd.length || toRemove.length) {
+    if (toAdd.length > 0) {
       await linkProductsToSalesChannelWorkflow(container).run({
         input: { id: target, add: [p.id], remove: [] },
       })
-      for (const staleChannelId of toRemove) {
-        await linkProductsToSalesChannelWorkflow(container).run({
-          input: { id: staleChannelId, add: [], remove: [p.id] },
-        })
-      }
+      linkedCount++
+    }
+    for (const staleChannelId of toRemove) {
+      await linkProductsToSalesChannelWorkflow(container).run({
+        input: { id: staleChannelId, add: [], remove: [p.id] },
+      })
     }
   }
 
-  logger.info(
-    `Linked ${allProducts.length - productsWithoutBrand.length} products to their brand channel`
-  )
+  logger.info(`Linked ${linkedCount} products to their brand channel`)
   if (productsWithoutBrand.length > 0) {
     logger.warn(
       `Products without a brand link (left out of every channel): ${productsWithoutBrand.join(", ")}`
     )
+  }
+
+  // Revoke any legacy publishable key (pre-migration single "Storefront" key).
+  const brandKeyTitles = new Set(
+    Object.values(BRAND_CHANNELS).map((name) => `${name} Storefront`)
+  )
+  const allPublishableKeys = await apiKeyModule.listApiKeys({
+    type: "publishable",
+  })
+  for (const k of allPublishableKeys) {
+    if (!brandKeyTitles.has(k.title) && !k.revoked_at) {
+      await apiKeyModule.revoke(k.id, { revoked_by: "seed" })
+      logger.info(`Revoked legacy publishable key: ${k.title}`)
+    }
   }
 
   const { data: inventoryItems } = await query.graph({

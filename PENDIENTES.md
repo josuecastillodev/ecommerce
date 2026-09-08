@@ -50,9 +50,12 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   agrega lógica en ese subscriber (notificar al cliente, etc.), no puede
   depender solo de él para tarjetas; revisar `payment.captured` vs. leer el
   estado directo del pago.
-- `/store/categories*` filtradas por `brand_id` no están scopeadas al canal de
-  la publishable key (a diferencia de `/store/products` y `/store/brands/:slug/products`).
-  Bajo riesgo (hay categorías globales), pero conviene scoparlas.
+- `/store/categories/:slug/products` ahora se scopea al canal de la publishable
+  key (M2): deriva la marca del `sales_channel` de la key, fuerza
+  `filters.brand = { id: callerBrand.id }` e ignora cualquier `brand_id` que
+  mande el cliente; sin key válida → 400. Follow-up: la ruta lista
+  `/store/categories` (si todavía acepta un `brand_id` sin scopear) queda
+  pendiente de aplicar el mismo patrón.
 - `X-Brand-Id` en `/store/customers/me*` y `/store/orders*` podría derivarse del
   sales channel de la publishable key en vez de exigir el header explícito.
 - No hay admin user scopeado por marca: el admin ve todos los canales/marcas.
@@ -62,9 +65,11 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   (`min_price`/`max_price`/`sizes`/`in_stock`): reimplementar como ruta custom
   scopeada por canal si un storefront los necesita.
 - `default_sales_channel_id` del store apunta al "Default Sales Channel" de
-  Medusa (sin publishable key, ningún storefront lo usa). El canal legacy que
-  pudiera existir queda vacío (productos desvinculados por el seed) — huérfano
-  inofensivo.
+  Medusa (sin publishable key, ningún storefront lo usa). El seed drena el canal
+  legacy **solo de los productos con marca** (los sin marca, si los hubiera, se
+  quedan y se loguean como warning), y la publishable key legacy (la vieja
+  titulada `"Storefront"`) ahora queda **revocada** por el seed (M3), así que no
+  puede servir requests. El canal en sí queda como huérfano inofensivo.
 - **Carrito y marca**: Medusa 2.20.1 no valida nativamente que la variante esté
   en el `sales_channel_id` del carrito (verificado 2026-09-07). Cubierto por el
   middleware `validateCartLineItemBrand` (Task 7), cableado en
@@ -72,6 +77,10 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   (`403`) mezclar marcas. Follow-up pendiente: el guard llama `next()` cuando el
   carrito no tiene `sales_channel_id` (o no existe) y no mira `cart.metadata.brand_id`;
   carritos sin canal quedarían sin validar.
+- `POST /store/carts` con `items[]` inline puede crear un carrito ya mixto (200);
+  `validateCartLineItemBrand` solo lo bloquea al agregar más items o al completar
+  (`/complete` recorre `cart.items` y devuelve 403). Cubrir el create-with-items
+  si se quiere rechazo temprano.
 
 ### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
@@ -336,3 +345,28 @@ o cualquier line item ya presente pertenece a un producto que no está en ese
 canal. Si el carrito no existe o no tiene `sales_channel_id`, llama `next()` y
 deja responder al handler nativo. Verificado (ver Caso 3 arriba, re-verificación
 2026-09-08).
+
+### Fixes del review final de rama (M1-M3) — aplicados y re-verificados (2026-09-08)
+
+- **M1** — `validateCartLineItemBrand` ahora falla cerrado si su propio lookup
+  de variantes devuelve menos filas que las pedidas (`variants.length !==
+  variantIds.size` → 500), en vez de dejar pasar (`next()`) variantes que no
+  vio. Re-verificado: add cross-brand → **403**, add mismo brand → **200**
+  (dos items Urban en el mismo carrito), sin regresión en el happy path.
+- **M2** — `/store/categories/:slug/products` se scopea al canal de la
+  publishable key (misma lógica que `/store/brands/:slug/products`). Sin key
+  válida → **400**. Con `PK_URBAN` / `PK_CLASSIC` → **200** y `filters.brand`
+  forzado al brand del caller; cualquier `brand_id` del query string se ignora.
+  Nota: en el estado actual de la DB la tabla de link
+  `categorymodule_category_product_product` está vacía (0 filas), así que la
+  ruta devuelve `count: 0` para ambas keys — el aislamiento por marca y el 400
+  sin key sí quedan demostrados; poblar los links categoría↔producto es un
+  pendiente pre-existente aparte.
+- **M3** — el seed revoca cualquier publishable key cuyo título no sea
+  `Urban Street Storefront` / `Classic Threads Storefront` vía
+  `apiKeyModule.revoke(id, { revoked_by: "seed" })`. Primera corrida revocó
+  `Default Publishable API Key`; segunda corrida es no-op (`revoked_at` ya
+  seteado). `verify-brand-channels.ts` suma dos invariantes nuevas (ninguna key
+  fuera de `KEY_TITLES` linkeada a un canal de marca; el path
+  `variant -> product.sales_channels` del cart guard resuelve) — las 7 pasan.
+- `pnpm run build` → tsc 0 errores.

@@ -113,6 +113,55 @@ export default async function verifyBrandChannels({ container }: ExecArgs) {
     ok(`los ${products.length} productos están cada uno solo en el canal de su marca`)
   }
 
+  // 4. Ninguna publishable key con título fuera de KEY_TITLES está linkeada a
+  //    un sales channel de marca (detecta una key legacy/stray que "regresa"
+  //    a un canal de marca).
+  const validKeyTitles = new Set(Object.values(KEY_TITLES))
+  const brandChannelIds = new Set(Object.values(channelIdByBrandSlug))
+  const { data: allKeys } = await query.graph({
+    entity: "api_key",
+    fields: ["id", "title", "type", "revoked_at", "sales_channels.id"],
+  })
+  for (const k of allKeys as any[]) {
+    if (k.type !== "publishable") {
+      continue
+    }
+    if (validKeyTitles.has(k.title)) {
+      continue
+    }
+    const linkedBrandChannels = (k.sales_channels ?? []).filter((c: any) =>
+      brandChannelIds.has(c.id)
+    )
+    if (linkedBrandChannels.length > 0) {
+      fail(
+        `publishable key "${k.title}" (fuera de KEY_TITLES) está linkeada a ${linkedBrandChannels.length} canal(es) de marca`
+      )
+    }
+  }
+  ok(`ninguna key fuera de KEY_TITLES está linkeada a un canal de marca`)
+
+  // 5. El path del graph del que depende el cart guard resuelve.
+  try {
+    const { data: variantProbe } = await query.graph({
+      entity: "variant",
+      fields: ["id", "product.sales_channels.id"],
+      filters: {},
+      pagination: { take: 1 },
+    })
+    const row = (variantProbe as any[])[0]
+    if (!row) {
+      fail(`probe variant->product.sales_channels: no devolvió ninguna variante`)
+    } else if (!Array.isArray(row.product?.sales_channels)) {
+      fail(
+        `probe variant->product.sales_channels: estructura ausente (product.sales_channels no es array)`
+      )
+    } else {
+      ok(`probe variant->product.sales_channels resuelve (traversal del cart guard)`)
+    }
+  } catch (e: any) {
+    fail(`probe variant->product.sales_channels lanzó: ${e?.message ?? e}`)
+  }
+
   if (failures.length > 0) {
     throw new Error(
       `[verify] ${failures.length} invariante(s) de tenancy fallaron:\n- ${failures.join("\n- ")}`
