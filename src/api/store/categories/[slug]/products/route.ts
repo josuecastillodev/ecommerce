@@ -13,18 +13,39 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { slug } = req.params
   const {
-    brand_id,
     offset = "0",
     limit = "20",
     include_subcategories = "true",
   } = req.query
 
-  // Find category by slug
-  let category = null
-
-  if (brand_id) {
-    category = await categoryService.findBySlug(slug, brand_id as string)
+  // Scope to the caller's brand, derived from the publishable key's sales
+  // channel(s). A client-supplied `brand_id` query param is ignored — a
+  // storefront only ever sees its own brand's catalog.
+  const channelIds =
+    (req as any).publishable_key_context?.sales_channel_ids ?? []
+  if (channelIds.length === 0) {
+    res.status(400).json({ message: "Missing publishable API key context" })
+    return
   }
+
+  const { data: channels } = await query.graph({
+    entity: "sales_channel",
+    fields: ["id", "brand.id", "brand.slug", "brand.active"],
+    filters: { id: channelIds },
+  })
+  const callerBrand = channels
+    .map((c: any) => c.brand)
+    .find((b: any) => b && b.active)
+
+  if (!callerBrand) {
+    res.status(400).json({ message: "Missing publishable API key context" })
+    return
+  }
+
+  const brand_id = callerBrand.id
+
+  // Find category by slug
+  let category = await categoryService.findBySlug(slug, brand_id as string)
 
   if (!category) {
     category = await categoryService.findBySlug(slug, null)
@@ -43,15 +64,11 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     categoryIds.push(...subcategories.filter((c) => c.is_active).map((c) => c.id))
   }
 
-  // Build filters
+  // Build filters — always scoped to the caller's brand.
   const filters: Record<string, unknown> = {
     status: "published",
     category: { id: categoryIds },
-  }
-
-  // If brand_id provided, filter by brand
-  if (brand_id) {
-    filters.brand = { id: brand_id }
+    brand: { id: brand_id },
   }
 
   // Query products

@@ -224,6 +224,13 @@ export function validateCartLineItemBrand() {
         filters: { id: Array.from(variantIds) },
       })
 
+      if (variants.length !== variantIds.size) {
+        return res.status(500).json({
+          type: "server_error",
+          message: "Error al validar la marca del carrito.",
+        })
+      }
+
       for (const variant of variants as any[]) {
         const channelIds: string[] = (variant.product?.sales_channels ?? []).map(
           (sc: any) => sc.id
