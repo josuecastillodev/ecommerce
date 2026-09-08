@@ -1,7 +1,7 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
-import { validateCustomerBrand } from "../utils/brand-middleware"
+import { validateCustomerBrand, validateCartLineItemBrand } from "../utils/brand-middleware"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
 // second argument. These custom routes run their own query.graph with explicit
@@ -92,8 +92,6 @@ const listProductsQuerySchema = z.object({
   low_stock: z.enum(["true", "false"]).optional(),
   threshold: z.coerce.number().min(0).optional(),
 })
-
-const storeProductsQuerySchema = listProductsQuerySchema.omit({ status: true })
 
 // Category validation schemas
 const createCategorySchema = z.object({
@@ -228,17 +226,6 @@ export default defineMiddlewares({
       ],
     },
 
-    // ====================
-    // Store Product Routes
-    // ====================
-    {
-      matcher: "/store/products",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(storeProductsQuerySchema, LIST_QUERY_CONFIG),
-      ],
-    },
-
     // ======================
     // Admin Category Routes
     // ======================
@@ -328,6 +315,21 @@ export default defineMiddlewares({
       matcher: "/store/customers/me/brand",
       method: "POST",
       middlewares: [validateAndTransformBody(brandPreferencesSchema)],
+    },
+
+    // ==================
+    // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
+    // de la variante en el carrito)
+    // ==================
+    {
+      matcher: "/store/carts/:id/line-items",
+      method: "POST",
+      middlewares: [validateCartLineItemBrand()],
+    },
+    {
+      matcher: "/store/carts/:id/complete",
+      method: "POST",
+      middlewares: [validateCartLineItemBrand()],
     },
   ],
 })

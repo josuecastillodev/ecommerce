@@ -944,6 +944,204 @@ git commit -m "docs: registrar migración a sales-channel-por-marca y su verific
 
 ---
 
+### Task 7: Guard de marca en el carrito (añadida tras la verificación de Task 6)
+
+**Por qué:** La verificación de Task 6 (caso 3) demostró que la premisa del spec
+—"un carrito rechaza nativamente line items fuera de su sales channel"— es
+**falsa** en Medusa 2.20.1: agregar una variante de otra marca a un carrito
+devuelve `200` y el carrito mixto completa a orden. El aislamiento de catálogo
+(Tasks 4-5) evita que un storefront *descubra* IDs ajenos, pero un cliente con un
+`variant_id` ajeno puede mezclar marcas y comprar. Esta task reintroduce la
+validación explícita que `validateCartBrandAccess` (borrada en Task 4) pretendía
+dar, ahora apoyada en el `sales_channel_id` que el carrito ya lleva.
+
+**Files:**
+- Modify: `src/utils/brand-middleware.ts` — añadir `validateCartLineItemBrand()`.
+- Modify: `src/api/middlewares.ts` — cablearla en `POST /store/carts/:id/line-items` y `POST /store/carts/:id/complete`.
+- Modify: `PENDIENTES.md` — corregir la fila "Resuelto" y la sección de verificación (caso 3 pasa a ✅), quitar/ajustar el follow-up del cart leak.
+- Modify: `README.md` — la sección de storefronts afirma "`/store/carts` y el checkout quedan aislados por marca de forma nativa"; cambiar "de forma nativa" por "mediante un middleware de validación de marca (`validateCartLineItemBrand`)".
+
+**Interfaces:**
+- Consumes: el link `brand ↔ sales_channel` (Task 1); el `sales_channel_id` que Medusa setea en el carrito desde el contexto de la publishable key.
+- Produces: `validateCartLineItemBrand(): MedusaRequestHandler` — middleware que responde `403 { type: "not_allowed", message }` si la variante entrante (body `variant_id`) o algún line item ya presente pertenece a un producto que no está en el `sales_channel_id` del carrito. Si el carrito no existe o no tiene `sales_channel_id`, llama `next()` (deja que el handler nativo responda).
+
+- [ ] **Step 1: Reproducir el fallo (RED)**
+
+Con el server corriendo y `PK_URBAN` / `PK_CLASSIC` del seed:
+
+```bash
+REGION=$(curl -s localhost:9000/store/regions -H "x-publishable-api-key: $PK_URBAN" | jq -r '.regions[0].id')
+UVAR=$(curl -s "localhost:9000/store/products?limit=1&fields=id,*variants" -H "x-publishable-api-key: $PK_URBAN" | jq -r '.products[0].variants[0].id')
+CVAR=$(curl -s "localhost:9000/store/products?limit=1&fields=id,*variants" -H "x-publishable-api-key: $PK_CLASSIC" | jq -r '.products[0].variants[0].id')
+CART=$(curl -s -X POST localhost:9000/store/carts -H "x-publishable-api-key: $PK_URBAN" -H 'content-type: application/json' -d "{\"region_id\":\"$REGION\"}" | jq -r '.cart.id')
+curl -s -X POST "localhost:9000/store/carts/$CART/line-items" -H "x-publishable-api-key: $PK_URBAN" -H 'content-type: application/json' -d "{\"variant_id\":\"$UVAR\",\"quantity\":1}" >/dev/null
+curl -s -o /dev/null -w 'add cross-brand ANTES del guard: %{http_code}\n' -X POST "localhost:9000/store/carts/$CART/line-items" -H "x-publishable-api-key: $PK_URBAN" -H 'content-type: application/json' -d "{\"variant_id\":\"$CVAR\",\"quantity\":1}"
+```
+Expected: `add cross-brand ANTES del guard: 200` (el bug).
+
+- [ ] **Step 2: Añadir `validateCartLineItemBrand()` a `src/utils/brand-middleware.ts`**
+
+Añadir al final del archivo (después de `optionalBrandId`), reutilizando los imports ya presentes (`MedusaRequest/Response/NextFunction`, `ContainerRegistrationKeys` — añadir este import si falta: `import { ContainerRegistrationKeys } from "@medusajs/framework/utils"`):
+
+```ts
+/**
+ * Middleware: impide que un carrito contenga productos de más de una marca.
+ *
+ * Medusa 2.20.1 NO valida la pertenencia de una variante al sales channel del
+ * carrito (ni al agregar line items ni al completar). Este guard lo hace de
+ * forma explícita: resuelve el `sales_channel_id` del carrito y rechaza (403)
+ * si la variante entrante (`body.variant_id`) o cualquier line item ya
+ * presente pertenece a un producto que no está en ese canal. Como cada canal
+ * es 1:1 con una marca (link `brand ↔ sales_channel`), "otro canal" = "otra
+ * marca".
+ *
+ * Cablear en POST /store/carts/:id/line-items y POST /store/carts/:id/complete.
+ */
+export function validateCartLineItemBrand() {
+  return async (
+    req: MedusaRequest,
+    res: MedusaResponse,
+    next: MedusaNextFunction
+  ) => {
+    const cartId = req.params.id
+    if (!cartId) {
+      return next()
+    }
+
+    const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+
+    try {
+      const { data: carts } = await query.graph({
+        entity: "cart",
+        fields: ["id", "sales_channel_id", "items.variant_id"],
+        filters: { id: cartId },
+      })
+      const cart = carts[0]
+      const cartChannelId = cart?.sales_channel_id
+
+      // Sin carrito o sin canal: nada que validar, que siga el handler nativo.
+      if (!cart || !cartChannelId) {
+        return next()
+      }
+
+      const variantIds = new Set<string>()
+      const incoming = (req.body as any)?.variant_id
+      if (typeof incoming === "string" && incoming) {
+        variantIds.add(incoming)
+      }
+      for (const item of cart.items ?? []) {
+        if (item?.variant_id) {
+          variantIds.add(item.variant_id)
+        }
+      }
+
+      if (variantIds.size === 0) {
+        return next()
+      }
+
+      const { data: variants } = await query.graph({
+        entity: "variant",
+        fields: ["id", "product.sales_channels.id"],
+        filters: { id: Array.from(variantIds) },
+      })
+
+      for (const variant of variants as any[]) {
+        const channelIds: string[] = (variant.product?.sales_channels ?? []).map(
+          (sc: any) => sc.id
+        )
+        if (!channelIds.includes(cartChannelId)) {
+          return res.status(403).json({
+            type: "not_allowed",
+            message:
+              "No puedes agregar productos de otra marca a este carrito.",
+          })
+        }
+      }
+
+      return next()
+    } catch (error) {
+      return res.status(500).json({
+        type: "server_error",
+        message: "Error al validar la marca del carrito.",
+      })
+    }
+  }
+}
+```
+
+- [ ] **Step 3: Cablear en `src/api/middlewares.ts`**
+
+Añadir el import junto al de `validateCustomerBrand`:
+
+```ts
+import { validateCustomerBrand, validateCartLineItemBrand } from "../utils/brand-middleware"
+```
+
+Y en el array `routes` de `defineMiddlewares`, añadir (después del bloque de Store Customer Routes):
+
+```ts
+    // ==================
+    // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
+    // de la variante en el carrito)
+    // ==================
+    {
+      matcher: "/store/carts/:id/line-items",
+      method: "POST",
+      middlewares: [validateCartLineItemBrand()],
+    },
+    {
+      matcher: "/store/carts/:id/complete",
+      method: "POST",
+      middlewares: [validateCartLineItemBrand()],
+    },
+```
+
+- [ ] **Step 4: Build**
+
+Run: `pnpm run build`
+Expected: tsc sin errores nuevos (sigue en 0). Reiniciar el server con el build nuevo.
+
+- [ ] **Step 5: Verificar el guard (GREEN)**
+
+```bash
+# mismo setup del Step 1: REGION, UVAR, CVAR, CART con un item Urban ya dentro
+# a) cross-brand en line-items -> 403
+curl -s -o /dev/null -w 'add cross-brand con guard: %{http_code}\n' -X POST "localhost:9000/store/carts/$CART/line-items" -H "x-publishable-api-key: $PK_URBAN" -H 'content-type: application/json' -d "{\"variant_id\":\"$CVAR\",\"quantity\":1}"
+# b) misma marca sigue funcionando -> 200
+UVAR2=$(curl -s "localhost:9000/store/products?limit=2&fields=id,*variants" -H "x-publishable-api-key: $PK_URBAN" | jq -r '.products[1].variants[0].id')
+curl -s -o /dev/null -w 'add misma marca: %{http_code}\n' -X POST "localhost:9000/store/carts/$CART/line-items" -H "x-publishable-api-key: $PK_URBAN" -H 'content-type: application/json' -d "{\"variant_id\":\"$UVAR2\",\"quantity\":1}"
+# c) checkout Urban completo (repetir el smoke de PENDIENTES con PK_URBAN) -> { "type": "order" }
+```
+Expected: `add cross-brand con guard: 403`; `add misma marca: 200`; checkout de una sola marca completa a orden.
+
+- [ ] **Step 6: Verificar el guard en /complete con un carrito mixto pre-existente**
+
+```bash
+# Crear un carrito mixto SALTÁNDOSE el guard: agregar el item Classic vía un
+# segundo carrito no sirve; en su lugar, comprobar que un carrito que YA tiene
+# 2 marcas (por datos legacy) no puede completar. Simular: crear carrito Urban,
+# agregar item Urban, y con `npx medusa exec` insertar un line item Classic
+# directo por el módulo de carrito, luego:
+curl -s -o /dev/null -w 'complete carrito mixto: %{http_code}\n' -X POST "localhost:9000/store/carts/$MIXED_CART/complete" -H "x-publishable-api-key: $PK_URBAN"
+```
+Expected: `complete carrito mixto: 403`. (Si montar el carrito mixto por módulo es demasiado, basta con documentar que el mismo middleware corre en `/complete` y el check recorre `cart.items` — el Step 5a ya prueba la ruta de código.)
+
+- [ ] **Step 7: Actualizar `PENDIENTES.md` y `README.md`**
+
+- Sección `### Verificación de la migración a sales-channel-por-marca`: cambiar el **Caso 3** de ❌ FALLA a ✅, describiendo que el guard `validateCartLineItemBrand` (cableado en `/store/carts/:id/line-items` y `/complete`) devuelve `403` al mezclar marcas, y que el checkout de una sola marca sigue pasando.
+- Fila "Resuelto" **Brand como tenant**: cambiar "un carrito rechaza line items fuera de su canal" por "un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente".
+- Follow-up del cart leak en `### 1. Varios`: reemplazar el bullet "**El carrito NO valida el sales channel de la variante**..." por una nota corta de que quedó cubierto por `validateCartLineItemBrand`, dejando como follow-up solo el caso de `cart.metadata.brand_id` / carritos sin `sales_channel_id`.
+- `README.md` sección storefronts: "`/store/products` … aislados por marca de forma nativa … `/store/carts` y el checkout" → separar: `/store/products` y `/store/brands/:slug/products` de forma nativa por el sales channel; `/store/carts` y el checkout mediante el middleware `validateCartLineItemBrand`.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/utils/brand-middleware.ts src/api/middlewares.ts PENDIENTES.md README.md
+git commit -m "fix: validar marca del carrito en line-items y complete (Medusa 2.20 no lo hace)"
+```
+
+---
+
 ## Self-Review
 
 **1. Spec coverage:**

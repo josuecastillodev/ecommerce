@@ -66,17 +66,19 @@ export default async function seed({ container }: ExecArgs) {
   // ============================================================
   logger.info("Seeding commerce fundamentals...")
 
-  // Sales channel — reuse the one Medusa creates on first boot.
-  let [salesChannel] = await salesChannelModule.listSalesChannels(
+  // Sales channel por defecto del store — Medusa crea uno en el primer boot.
+  // NO se usa para storefronts (no lleva publishable key); solo es el fallback
+  // del store. Los canales de marca se crean más abajo, después de las brands.
+  let [defaultSalesChannel] = await salesChannelModule.listSalesChannels(
     {},
     { take: 1, order: { created_at: "ASC" } }
   )
-  if (!salesChannel) {
+  if (!defaultSalesChannel) {
     const { result } = await createSalesChannelsWorkflow(container).run({
-      input: { salesChannelsData: [{ name: "Tienda Multi-Marca" }] },
+      input: { salesChannelsData: [{ name: "Default Sales Channel" }] },
     })
-    salesChannel = result[0]
-    logger.info("Created sales channel")
+    defaultSalesChannel = result[0]
+    logger.info("Created default sales channel")
   }
 
   // Store — set MXN as the default supported currency + default channel.
@@ -87,7 +89,7 @@ export default async function seed({ container }: ExecArgs) {
         selector: { id: store.id },
         update: {
           supported_currencies: [{ currency_code: "mxn", is_default: true }],
-          default_sales_channel_id: salesChannel.id,
+          default_sales_channel_id: defaultSalesChannel.id,
         },
       },
     })
@@ -161,10 +163,6 @@ export default async function seed({ container }: ExecArgs) {
       },
     })
   )
-
-  await linkSalesChannelsToStockLocationWorkflow(container).run({
-    input: { id: stockLocation.id, add: [salesChannel.id] },
-  })
 
   // Fulfillment set + service zone for Mexico.
   let [fulfillmentSet] = await fulfillmentModule.listFulfillmentSets(
@@ -268,23 +266,6 @@ export default async function seed({ container }: ExecArgs) {
     logger.info("Created shipping options: Estándar + Exprés")
   }
 
-  // Publishable API key — required for every /store/* request.
-  let [publishableKey] = await apiKeyModule.listApiKeys({ type: "publishable" })
-  if (!publishableKey) {
-    const { result } = await createApiKeysWorkflow(container).run({
-      input: {
-        api_keys: [
-          { title: "Storefront", type: "publishable", created_by: "seed" },
-        ],
-      },
-    })
-    publishableKey = result[0]
-    logger.info("Created publishable API key")
-  }
-  await linkSalesChannelsToApiKeyWorkflow(container).run({
-    input: { id: publishableKey.id, add: [salesChannel.id] },
-  })
-
   // ==================
   // 1. Create Brands
   // ==================
@@ -330,6 +311,81 @@ export default async function seed({ container }: ExecArgs) {
     }
 
     brands[brandData.slug] = brand
+  }
+
+  // ============================================================
+  // 1b. Un sales channel + una publishable key por marca
+  // ============================================================
+  logger.info("Seeding per-brand sales channels + publishable keys...")
+
+  const BRAND_CHANNELS: Record<string, string> = {
+    "urban-street": "Urban Street",
+    "classic-threads": "Classic Threads",
+  }
+
+  // brandSlug -> { channelId, keyToken }
+  const brandChannels: Record<string, { channelId: string; keyToken: string }> = {}
+
+  for (const [slug, channelName] of Object.entries(BRAND_CHANNELS)) {
+    const brand = brands[slug]
+    if (!brand) {
+      logger.error(`Cannot create channel: brand "${slug}" missing`)
+      continue
+    }
+
+    // 1. Sales channel (idempotente por nombre).
+    let [channel] = await salesChannelModule.listSalesChannels({ name: channelName })
+    if (!channel) {
+      const { result } = await createSalesChannelsWorkflow(container).run({
+        input: { salesChannelsData: [{ name: channelName }] },
+      })
+      channel = result[0]
+      logger.info(`Created sales channel: ${channelName}`)
+    }
+
+    // 2. Link brand <-> sales channel (idempotente).
+    const { data: linkedBrand } = await query.graph({
+      entity: "brand",
+      fields: ["id", "sales_channel.id"],
+      filters: { id: brand.id },
+    })
+    if (linkedBrand[0]?.sales_channel?.id !== channel.id) {
+      await safeLink(() =>
+        link.create({
+          [BRAND_MODULE]: { brand_id: brand.id },
+          [Modules.SALES_CHANNEL]: { sales_channel_id: channel.id },
+        })
+      )
+      logger.info(`Linked brand ${channelName} <-> its sales channel`)
+    }
+
+    // 3. Link canal <-> stock location compartido (idempotente vía workflow).
+    await linkSalesChannelsToStockLocationWorkflow(container).run({
+      input: { id: stockLocation.id, add: [channel.id] },
+    })
+
+    // 4. Publishable key homónima (idempotente por título).
+    const keyTitle = `${channelName} Storefront`
+    let [pubKey] = await apiKeyModule.listApiKeys({
+      title: keyTitle,
+      type: "publishable",
+    })
+    if (!pubKey) {
+      const { result } = await createApiKeysWorkflow(container).run({
+        input: {
+          api_keys: [
+            { title: keyTitle, type: "publishable", created_by: "seed" },
+          ],
+        },
+      })
+      pubKey = result[0]
+      logger.info(`Created publishable key: ${keyTitle}`)
+    }
+    await linkSalesChannelsToApiKeyWorkflow(container).run({
+      input: { id: pubKey.id, add: [channel.id] },
+    })
+
+    brandChannels[slug] = { channelId: channel.id, keyToken: pubKey.token }
   }
 
   // ==================
@@ -649,15 +705,59 @@ export default async function seed({ container }: ExecArgs) {
   // ============================================================
   // 4. Make products purchasable: sales channel + inventory
   // ============================================================
+  // Linkear cada producto al sales channel de SU marca (idempotente) y
+  // sacarlo de cualquier otro canal (limpieza de estados legacy donde todos
+  // los productos colgaban de un canal compartido).
   const { data: allProducts } = await query.graph({
     entity: "product",
-    fields: ["id"],
+    fields: ["id", "title", "brand.slug", "sales_channels.id"],
   })
-  if (allProducts.length > 0) {
-    await linkProductsToSalesChannelWorkflow(container).run({
-      input: { id: salesChannel.id, add: allProducts.map((p: any) => p.id) },
-    })
-    logger.info(`Linked ${allProducts.length} products to the sales channel`)
+
+  const productsWithoutBrand: string[] = []
+  let linkedCount = 0
+
+  for (const p of allProducts as any[]) {
+    const slug = p.brand?.slug
+    const target = slug ? brandChannels[slug]?.channelId : undefined
+    if (!target) {
+      productsWithoutBrand.push(p.title)
+      continue
+    }
+    const current: string[] = (p.sales_channels ?? []).map((c: any) => c.id)
+    const toAdd = current.includes(target) ? [] : [target]
+    const toRemove = current.filter((id) => id !== target)
+    if (toAdd.length > 0) {
+      await linkProductsToSalesChannelWorkflow(container).run({
+        input: { id: target, add: [p.id], remove: [] },
+      })
+      linkedCount++
+    }
+    for (const staleChannelId of toRemove) {
+      await linkProductsToSalesChannelWorkflow(container).run({
+        input: { id: staleChannelId, add: [], remove: [p.id] },
+      })
+    }
+  }
+
+  logger.info(`Linked ${linkedCount} products to their brand channel`)
+  if (productsWithoutBrand.length > 0) {
+    logger.warn(
+      `Products without a brand link (left out of every channel): ${productsWithoutBrand.join(", ")}`
+    )
+  }
+
+  // Revoke any legacy publishable key (pre-migration single "Storefront" key).
+  const brandKeyTitles = new Set(
+    Object.values(BRAND_CHANNELS).map((name) => `${name} Storefront`)
+  )
+  const allPublishableKeys = await apiKeyModule.listApiKeys({
+    type: "publishable",
+  })
+  for (const k of allPublishableKeys) {
+    if (!brandKeyTitles.has(k.title) && !k.revoked_at) {
+      await apiKeyModule.revoke(k.id, { revoked_by: "seed" })
+      logger.info(`Revoked legacy publishable key: ${k.title}`)
+    }
   }
 
   const { data: inventoryItems } = await query.graph({
@@ -762,6 +862,8 @@ export default async function seed({ container }: ExecArgs) {
   logger.info(`  - Categories: ${Object.keys(categories).length}`)
   logger.info(`  - Products: ${productsData.length}`)
   logger.info(`  - Region: México (MXN, cards + OXXO)`)
-  logger.info(`  - Publishable API key: ${publishableKey.token}`)
+  for (const [slug, bc] of Object.entries(brandChannels)) {
+    logger.info(`  - Publishable key [${BRAND_CHANNELS[slug]}]: ${bc.keyToken}`)
+  }
   logger.info(`  - Test customers: ana@urban-street.mx / luis@classic-threads.mx (pass: ${TEST_CUSTOMER_PASSWORD})`)
 }

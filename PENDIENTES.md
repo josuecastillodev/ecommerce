@@ -26,6 +26,7 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Checkout con OXXO — confirmación async por webhook, verificada con ngrok** | — | Túnel `ngrok http 9000` + webhook endpoint real creado en Stripe (API) apuntando a `/hooks/payment/<provider>_stripe`. Encontrado un bug de configuración (no de código): el webhook nativo de Medusa (`payment-webhook.ts`) resuelve el provider como `pp_${eventData.provider}`, tomando el segmento de la URL literal — con `@medusajs/payment-stripe` (que registra **múltiples** sub-providers desde un solo `id: "stripe"` en `medusa-config.ts`: `pp_stripe_stripe` para tarjetas, `pp_stripe-oxxo_stripe` para OXXO) la URL correcta **no** es `/hooks/payment/stripe` sino `/hooks/payment/stripe-oxxo_stripe` (OXXO) o `/hooks/payment/stripe_stripe` (tarjetas) — apuntar a `/hooks/payment/stripe` a secas siempre falla con `AwilixResolutionError: Could not resolve 'pp_stripe'`. Corregida la URL del webhook, el flujo completo funcionó dos veces seguidas de punta a punta sin intervención manual: cart → OXXO payment session → confirmar con `payment_method` tipo `oxxo` en Stripe → voucher generado → Stripe simula el pago en modo test (~2 min) → webhook `payment_intent.succeeded` llega vía ngrok → Medusa captura el pago → `POST .../complete` genera la orden (`paid_total` = `accounting_total`, `pending_difference: 0`). Observación menor: el *primer* intento de procesar cada webhook entrante falló (silenciosamente recuperado por el retry nativo de Medusa, `attempts: 3` en la config del webhook), y solo el reintento tuvo éxito — las 2 veces que se probó. No bloquea nada (Medusa ya reintenta automáticamente) pero vale la pena monitorear en producción si nunca se recupera tras 3 intentos. |
 | **Stock duplicado y en `0` en detalle/variantes** | `9897572` | `brand-products/[id]/route.ts` y `.../[id]/variants/route.ts` leían `variants.inventory_quantity` (campo que `query.graph` no popula en esta versión) → siempre reportaban stock `0`, mientras la lista sí calculaba bien desde `location_levels` (con la lógica copiada y pegada). Extraído un helper compartido `calculateVariantStock`/`calculateTotalStock` + `VARIANT_STOCK_FIELDS` en `src/modules/product-extension/stock.ts`, usado ahora en las 4 rutas que necesitan stock (lista, detalle, variantes, y el endpoint de métricas del dashboard, que tenía la misma lógica duplicada una tercera vez). Verificado: lista, detalle y variantes devuelven el mismo `total_stock` para el mismo producto. |
 | **`.nvmrc` y `README.md` desactualizado** | — | Agregado `.nvmrc` (`22.9.0`, versión soportada por Medusa 2.20 verificada en este entorno). `README.md` corregido: comandos `npm` → `pnpm` (según convención del repo), pasos de instalación con el usuario admin que faltaba, y la sección de API Endpoints reemplazada — ya no documenta `/store/auth`/`/store/customers/*` custom (borrados), ahora describe el auth nativo de Medusa + la capa multi-marca (`validateCustomerBrand`, `customer-created.ts`) y los endpoints `/admin/brand-products`, `/admin/dashboard/metrics`. |
+| **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
 
 ---
 
@@ -33,10 +34,11 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 
 ### 1. Varios
 
-- `src/utils/brand-middleware.ts` exporta `requireBrandId`,
-  `validateCartBrandAccess`, `optionalBrandId` sin cablear — toolkit pensado
-  para `/store/carts` (evitar compras cross-brand). Cablearlos cuando se
-  trabaje el carrito.
+- `src/utils/brand-middleware.ts` exporta `requireBrandId` y `optionalBrandId`
+  sin cablear — utilidades genéricas de extracción de marca, disponibles si se
+  necesitan. (`validateCartBrandAccess` se eliminó en la Task 4; su rol lo cubre
+  ahora `validateCartLineItemBrand`, que deriva la marca del `sales_channel_id`
+  del carrito en vez de un header `X-Brand-Id`.)
 - Subscribers `src/subscribers/brand-created.ts` y
   `product-brand-validator.ts` — heredados, sin verificar contra 2.20.
 - `pk_*` publishable key y credenciales de prueba están en la salida del seed.
@@ -48,6 +50,37 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   agrega lógica en ese subscriber (notificar al cliente, etc.), no puede
   depender solo de él para tarjetas; revisar `payment.captured` vs. leer el
   estado directo del pago.
+- `/store/categories/:slug/products` ahora se scopea al canal de la publishable
+  key (M2): deriva la marca del `sales_channel` de la key, fuerza
+  `filters.brand = { id: callerBrand.id }` e ignora cualquier `brand_id` que
+  mande el cliente; sin key válida → 400. Follow-up: la ruta lista
+  `/store/categories` (si todavía acepta un `brand_id` sin scopear) queda
+  pendiente de aplicar el mismo patrón.
+- `X-Brand-Id` en `/store/customers/me*` y `/store/orders*` podría derivarse del
+  sales channel de la publishable key en vez de exigir el header explícito.
+- No hay admin user scopeado por marca: el admin ve todos los canales/marcas.
+- Almacén único (`Almacén CDMX`) compartido entre los sales channels de las dos
+  marcas; si se quiere inventario separado, un stock location por marca.
+- Filtros de catálogo que tenía el `/store/products` custom borrado
+  (`min_price`/`max_price`/`sizes`/`in_stock`): reimplementar como ruta custom
+  scopeada por canal si un storefront los necesita.
+- `default_sales_channel_id` del store apunta al "Default Sales Channel" de
+  Medusa (sin publishable key, ningún storefront lo usa). El seed drena el canal
+  legacy **solo de los productos con marca** (los sin marca, si los hubiera, se
+  quedan y se loguean como warning), y la publishable key legacy (la vieja
+  titulada `"Storefront"`) ahora queda **revocada** por el seed (M3), así que no
+  puede servir requests. El canal en sí queda como huérfano inofensivo.
+- **Carrito y marca**: Medusa 2.20.1 no valida nativamente que la variante esté
+  en el `sales_channel_id` del carrito (verificado 2026-09-07). Cubierto por el
+  middleware `validateCartLineItemBrand` (Task 7), cableado en
+  `POST /store/carts/:id/line-items` y `POST /store/carts/:id/complete` — rechaza
+  (`403`) mezclar marcas. Follow-up pendiente: el guard llama `next()` cuando el
+  carrito no tiene `sales_channel_id` (o no existe) y no mira `cart.metadata.brand_id`;
+  carritos sin canal quedarían sin validar.
+- `POST /store/carts` con `items[]` inline puede crear un carrito ya mixto (200);
+  `validateCartLineItemBrand` solo lo bloquea al agregar más items o al completar
+  (`/complete` recorre `cart.items` y devuelve 403). Cubrir el create-with-items
+  si se quiere rechazo temprano.
 
 ### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
@@ -74,13 +107,6 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   sembrados.
 - Docstrings en `src/api/admin/brand-products/*.ts` todavía dicen
   `/admin/products` (rutas viejas antes del move).
-- `GET /store/products?brand_id=` sigue devolviendo 400 (`Unrecognized fields`):
-  el middleware nativo de Medusa sobre `/store/products` rechaza el param antes
-  de llegar al handler. El filtro de marca del storefront ya funciona por
-  `/store/brands/:slug/products`; si se quiere soportar `brand_id` en
-  `/store/products` hay que rodear ese middleware nativo (mismo patrón que el
-  des-shadow de `/admin/products`). El fix del key `{ brand: { id } }` en
-  `src/api/store/products/route.ts` ya quedó aplicado para cuando se desbloquee.
 
 ---
 
@@ -237,3 +263,110 @@ curl -s https://api.stripe.com/v1/webhook_endpoints -u "$STRIPE_KEY:" \
 # 4. Limpieza: borrar el webhook endpoint temporal cuando termines
 curl -s -X DELETE https://api.stripe.com/v1/webhook_endpoints/<id> -u "$STRIPE_KEY:"
 ```
+
+### Verificación de la migración a sales-channel-por-marca (2026-09-07)
+
+Corrido contra `medusa develop` en `:9000` con build fresca (`pnpm run build`),
+Postgres/Redis de `docker-compose`, seed idempotente aplicado. Keys usadas:
+
+- `PK_URBAN` → `pk_140724…ebf3` (canal `Urban Street`)
+- `PK_CLASSIC` → `pk_fa20ec…c1a` (canal `Classic Threads`)
+
+**Caso 1 — Catálogo aislado (`/store/products?limit=100` por key).** ✅
+`PK_URBAN` devuelve `["Camiseta Grafitti","Playera Oversized Minimal","T-Shirt
+Neon Dreams"]`; `PK_CLASSIC` devuelve `["Polo Ejecutivo","Camiseta Básica
+Premium","Henley Casual"]`. Cero solapamiento entre las dos listas.
+
+**Caso 2 — Detalle cross-brand → 404.** ✅
+`CLASSIC_PROD = prod_01M1PRDY0C5AYJ5GAGMHQ8TAWP` (obtenido con `PK_CLASSIC`).
+`GET /store/products/$CLASSIC_PROD` con `PK_URBAN` → **404**; con `PK_CLASSIC` →
+**200**.
+
+**Caso 3 — Carrito no mezcla marcas.** ✅ (con guard explícito, re-verificado 2026-09-08).
+Medusa 2.20.1 **no** valida nativamente la pertenencia de la variante al sales
+channel del carrito (ni en `line-items` ni en `complete`) — la verificación del
+2026-09-07 lo demostró (add cross-brand → 200, carrito mixto completó a orden).
+Task 7 añadió el middleware `validateCartLineItemBrand` (`src/utils/brand-middleware.ts`),
+cableado en `POST /store/carts/:id/line-items` y `POST /store/carts/:id/complete`.
+Re-verificación con build fresca y server reiniciado:
+
+- Cart `PK_URBAN` con un item Urban dentro; agregar la variante **Classic**
+  `variant_01M1PRDY14JFZ5RA7WY80Q7JCY` por `POST .../line-items` →
+  **HTTP 403** `{"type":"not_allowed","message":"No puedes agregar productos de
+  otra marca a este carrito."}`.
+- Agregar una segunda variante **Urban** al mismo carrito → **HTTP 200**
+  (`Camiseta Grafitti` + `Playera Oversized Minimal`).
+- Checkout de una sola marca completo con `PK_URBAN` (cart → line-item →
+  dirección → shipping method → payment collection → session `pp_system_default`
+  → `complete`) → `{"type":"order", order_01M20S0CK10R2K9HF34YZRZNCJ,
+  display_id:8, total:549}`. Sin regresión.
+- Carrito mixto pre-armado por el módulo de carrito (saltándose el middleware
+  HTTP): `POST /store/carts/<mixed>/complete` con `PK_URBAN` → **HTTP 403**
+  (`Camiseta Grafitti` Urban + `Polo Ejecutivo` Classic en canal Urban).
+
+**Caso 4 — `/store/brands/:slug/products` scopeado.** ✅
+`PK_URBAN` → `/store/brands/urban-street/products` = **200**,
+`/store/brands/classic-threads/products` = **404**. `PK_CLASSIC` → simétrico
+(`classic-threads` 200, `urban-street` 404).
+
+**Caso 5 — Checkout regresión con `PK_URBAN` en todo el flujo.** ✅
+cart → line-item (Urban) → dirección → shipping method (`so_01M1PRDXMY1AJGA5T9A0BF0H7T`)
+→ payment collection → payment session `pp_system_default` → `complete`.
+Resultado: `{"type":"order", order_id:"order_01M1ZASWW1BDRZDJR8D46B4YSS",
+display_id:6, total:549, status:"pending"}` (450 producto + 99 envío). Sin
+regresión: el checkout funciona igual con la key de marca.
+
+**Caso 6 — Probe de invariantes de datos
+(`npx medusa exec ./src/scripts/verify-brand-channels.ts`).** ✅
+Salida:
+
+```
+[verify] OK brand "Urban Street" -> canal "Urban Street"
+[verify] OK brand "Classic Threads" -> canal "Classic Threads"
+[verify] OK key "Urban Street Storefront" -> canal "Urban Street"
+[verify] OK key "Classic Threads Storefront" -> canal "Classic Threads"
+[verify] OK los 6 productos están cada uno solo en el canal de su marca
+[verify] Todas las invariantes de tenancy se cumplen.
+```
+
+#### Concern del Caso 3 (aislamiento de carrito) — RESUELTO en Task 7
+
+El plan asumía que "un carrito rechaza line items fuera de su canal" de forma
+nativa. **No es así en Medusa 2.20.1**: `addToCartWorkflow` / `completeCartWorkflow`
+no comprueban que la variante esté en el `sales_channel_id` del carrito. El
+aislamiento del **catálogo** (casos 1, 2, 4) sí se sostiene, pero un cliente que
+ya conozca un `variant_id` de otra marca podía mezclarlo y completar la orden.
+
+Task 7 añadió el middleware explícito `validateCartLineItemBrand`
+(`src/utils/brand-middleware.ts`), cableado en `POST /store/carts/:id/line-items`
+y `POST /store/carts/:id/complete`. Resuelve el `sales_channel_id` del carrito y
+devuelve `403 { type: "not_allowed" }` si la variante entrante (`body.variant_id`)
+o cualquier line item ya presente pertenece a un producto que no está en ese
+canal. Si el carrito no existe o no tiene `sales_channel_id`, llama `next()` y
+deja responder al handler nativo. Verificado (ver Caso 3 arriba, re-verificación
+2026-09-08).
+
+### Fixes del review final de rama (M1-M3) — aplicados y re-verificados (2026-09-08)
+
+- **M1** — `validateCartLineItemBrand` ahora falla cerrado si su propio lookup
+  de variantes devuelve menos filas que las pedidas (`variants.length !==
+  variantIds.size` → 500), en vez de dejar pasar (`next()`) variantes que no
+  vio. Re-verificado: add cross-brand → **403**, add mismo brand → **200**
+  (dos items Urban en el mismo carrito), sin regresión en el happy path.
+- **M2** — `/store/categories/:slug/products` se scopea al canal de la
+  publishable key (misma lógica que `/store/brands/:slug/products`). Sin key
+  válida → **400**. Con `PK_URBAN` / `PK_CLASSIC` → **200** y `filters.brand`
+  forzado al brand del caller; cualquier `brand_id` del query string se ignora.
+  Nota: en el estado actual de la DB la tabla de link
+  `categorymodule_category_product_product` está vacía (0 filas), así que la
+  ruta devuelve `count: 0` para ambas keys — el aislamiento por marca y el 400
+  sin key sí quedan demostrados; poblar los links categoría↔producto es un
+  pendiente pre-existente aparte.
+- **M3** — el seed revoca cualquier publishable key cuyo título no sea
+  `Urban Street Storefront` / `Classic Threads Storefront` vía
+  `apiKeyModule.revoke(id, { revoked_by: "seed" })`. Primera corrida revocó
+  `Default Publishable API Key`; segunda corrida es no-op (`revoked_at` ya
+  seteado). `verify-brand-channels.ts` suma dos invariantes nuevas (ninguna key
+  fuera de `KEY_TITLES` linkeada a un canal de marca; el path
+  `variant -> product.sales_channels` del cart guard resuelve) — las 7 pasan.
+- `pnpm run build` → tsc 0 errores.
