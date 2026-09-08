@@ -162,8 +162,11 @@ NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_...   # la de "Urban Street Storefront" o 
 NEXT_PUBLIC_BRAND_SLUG=urban-street          # o classic-threads
 ```
 
-Con eso, `/store/products`, `/store/carts` y el checkout quedan aislados por
-marca de forma nativa (Medusa filtra por el sales channel de la key). El header
+Con eso, `/store/products` y `/store/brands/:slug/products` quedan aislados por
+marca de forma nativa (Medusa filtra por el sales channel de la key). `/store/carts`
+y el checkout quedan aislados mediante un middleware de validación de marca
+(`validateCartLineItemBrand`), porque Medusa 2.20 no valida nativamente que la
+variante pertenezca al sales channel del carrito. El header
 `X-Brand-Id` se sigue enviando en las llamadas autenticadas de cliente
 (`/store/customers/me*`, `/store/orders*`), que se validan contra la marca
 asociada al cliente.

@@ -1,4 +1,5 @@
 import { MedusaRequest, MedusaResponse, MedusaNextFunction } from "@medusajs/framework/http"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
 import { BRAND_MODULE } from "../modules/brand"
 import type BrandModuleService from "../modules/brand/service"
@@ -159,5 +160,89 @@ export function optionalBrandId() {
     }
 
     next()
+  }
+}
+
+/**
+ * Middleware: impide que un carrito contenga productos de más de una marca.
+ *
+ * Medusa 2.20.1 NO valida la pertenencia de una variante al sales channel del
+ * carrito (ni al agregar line items ni al completar). Este guard lo hace de
+ * forma explícita: resuelve el `sales_channel_id` del carrito y rechaza (403)
+ * si la variante entrante (`body.variant_id`) o cualquier line item ya
+ * presente pertenece a un producto que no está en ese canal. Como cada canal
+ * es 1:1 con una marca (link `brand ↔ sales_channel`), "otro canal" = "otra
+ * marca".
+ *
+ * Cablear en POST /store/carts/:id/line-items y POST /store/carts/:id/complete.
+ */
+export function validateCartLineItemBrand() {
+  return async (
+    req: MedusaRequest,
+    res: MedusaResponse,
+    next: MedusaNextFunction
+  ) => {
+    const cartId = req.params.id
+    if (!cartId) {
+      return next()
+    }
+
+    const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+
+    try {
+      const { data: carts } = await query.graph({
+        entity: "cart",
+        fields: ["id", "sales_channel_id", "items.variant_id"],
+        filters: { id: cartId },
+      })
+      const cart = carts[0]
+      const cartChannelId = cart?.sales_channel_id
+
+      // Sin carrito o sin canal: nada que validar, que siga el handler nativo.
+      if (!cart || !cartChannelId) {
+        return next()
+      }
+
+      const variantIds = new Set<string>()
+      const incoming = (req.body as any)?.variant_id
+      if (typeof incoming === "string" && incoming) {
+        variantIds.add(incoming)
+      }
+      for (const item of cart.items ?? []) {
+        if (item?.variant_id) {
+          variantIds.add(item.variant_id)
+        }
+      }
+
+      if (variantIds.size === 0) {
+        return next()
+      }
+
+      const { data: variants } = await query.graph({
+        entity: "variant",
+        fields: ["id", "product.sales_channels.id"],
+        filters: { id: Array.from(variantIds) },
+      })
+
+      for (const variant of variants as any[]) {
+        const channelIds: string[] = (variant.product?.sales_channels ?? []).map(
+          (sc: any) => sc.id
+        )
+        if (!channelIds.includes(cartChannelId)) {
+          return res.status(403).json({
+            type: "not_allowed",
+            message:
+              "No puedes agregar productos de otra marca a este carrito.",
+          })
+        }
+      }
+
+      return next()
+    } catch (error) {
+      return res.status(500).json({
+        type: "server_error",
+        message: "Error al validar la marca del carrito.",
+      })
+    }
   }
 }
