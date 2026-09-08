@@ -10,7 +10,10 @@ import {
   StepResponse,
   transform,
 } from "@medusajs/framework/workflows-sdk"
-import { createProductsWorkflow } from "@medusajs/medusa/core-flows"
+import {
+  createProductsWorkflow,
+  linkProductsToSalesChannelWorkflow,
+} from "@medusajs/medusa/core-flows"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import { BRAND_MODULE } from "../modules/brand"
 import { SKUService } from "../modules/product-extension"
@@ -126,6 +129,44 @@ const linkProductToBrandStep = createStep(
       [Modules.PRODUCT]: {
         product_id: data.product_id,
       },
+    })
+  }
+)
+
+// Step: Link product to its brand's sales channel.
+// Sin esto el producto queda fuera de todo sales channel y ningún storefront
+// (que consulta con su publishable key) lo ve.
+const linkProductToBrandSalesChannelStep = createStep(
+  "link-product-to-brand-sales-channel",
+  async (
+    input: { product_id: string; brand_id: string },
+    { container }
+  ) => {
+    const query = container.resolve(ContainerRegistrationKeys.QUERY)
+
+    const { data: brands } = await query.graph({
+      entity: "brand",
+      fields: ["id", "sales_channel.id"],
+      filters: { id: input.brand_id },
+    })
+
+    const channelId = brands[0]?.sales_channel?.id
+    if (!channelId) {
+      throw new Error(
+        `Brand ${input.brand_id} has no sales channel linked. Run "pnpm run seed" to provision per-brand channels.`
+      )
+    }
+
+    await linkProductsToSalesChannelWorkflow(container).run({
+      input: { id: channelId, add: [input.product_id], remove: [] },
+    })
+
+    return new StepResponse({ product_id: input.product_id, channel_id: channelId })
+  },
+  async (data, { container }) => {
+    if (!data) return
+    await linkProductsToSalesChannelWorkflow(container).run({
+      input: { id: data.channel_id, add: [], remove: [data.product_id] },
     })
   }
 )
@@ -249,6 +290,11 @@ export const createProductWithBrandWorkflow = createWorkflow(
     const productId = transform({ products }, ({ products }) => products[0].id)
 
     linkProductToBrandStep({
+      product_id: productId,
+      brand_id: input.brand_id,
+    })
+
+    linkProductToBrandSalesChannelStep({
       product_id: productId,
       brand_id: input.brand_id,
     })
