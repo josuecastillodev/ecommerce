@@ -26,6 +26,7 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Checkout con OXXO — confirmación async por webhook, verificada con ngrok** | — | Túnel `ngrok http 9000` + webhook endpoint real creado en Stripe (API) apuntando a `/hooks/payment/<provider>_stripe`. Encontrado un bug de configuración (no de código): el webhook nativo de Medusa (`payment-webhook.ts`) resuelve el provider como `pp_${eventData.provider}`, tomando el segmento de la URL literal — con `@medusajs/payment-stripe` (que registra **múltiples** sub-providers desde un solo `id: "stripe"` en `medusa-config.ts`: `pp_stripe_stripe` para tarjetas, `pp_stripe-oxxo_stripe` para OXXO) la URL correcta **no** es `/hooks/payment/stripe` sino `/hooks/payment/stripe-oxxo_stripe` (OXXO) o `/hooks/payment/stripe_stripe` (tarjetas) — apuntar a `/hooks/payment/stripe` a secas siempre falla con `AwilixResolutionError: Could not resolve 'pp_stripe'`. Corregida la URL del webhook, el flujo completo funcionó dos veces seguidas de punta a punta sin intervención manual: cart → OXXO payment session → confirmar con `payment_method` tipo `oxxo` en Stripe → voucher generado → Stripe simula el pago en modo test (~2 min) → webhook `payment_intent.succeeded` llega vía ngrok → Medusa captura el pago → `POST .../complete` genera la orden (`paid_total` = `accounting_total`, `pending_difference: 0`). Observación menor: el *primer* intento de procesar cada webhook entrante falló (silenciosamente recuperado por el retry nativo de Medusa, `attempts: 3` en la config del webhook), y solo el reintento tuvo éxito — las 2 veces que se probó. No bloquea nada (Medusa ya reintenta automáticamente) pero vale la pena monitorear en producción si nunca se recupera tras 3 intentos. |
 | **Stock duplicado y en `0` en detalle/variantes** | `9897572` | `brand-products/[id]/route.ts` y `.../[id]/variants/route.ts` leían `variants.inventory_quantity` (campo que `query.graph` no popula en esta versión) → siempre reportaban stock `0`, mientras la lista sí calculaba bien desde `location_levels` (con la lógica copiada y pegada). Extraído un helper compartido `calculateVariantStock`/`calculateTotalStock` + `VARIANT_STOCK_FIELDS` en `src/modules/product-extension/stock.ts`, usado ahora en las 4 rutas que necesitan stock (lista, detalle, variantes, y el endpoint de métricas del dashboard, que tenía la misma lógica duplicada una tercera vez). Verificado: lista, detalle y variantes devuelven el mismo `total_stock` para el mismo producto. |
 | **`.nvmrc` y `README.md` desactualizado** | — | Agregado `.nvmrc` (`22.9.0`, versión soportada por Medusa 2.20 verificada en este entorno). `README.md` corregido: comandos `npm` → `pnpm` (según convención del repo), pasos de instalación con el usuario admin que faltaba, y la sección de API Endpoints reemplazada — ya no documenta `/store/auth`/`/store/customers/*` custom (borrados), ahora describe el auth nativo de Medusa + la capa multi-marca (`validateCustomerBrand`, `customer-created.ts`) y los endpoints `/admin/brand-products`, `/admin/dashboard/metrics`. |
+| **Carrito y marca — cierre de fugas** | — | Dos huecos del guard de carrito cerrados. (1) `validateCartLineItemBrand` ya no hace `next()` a ciegas cuando el carrito no tiene `sales_channel_id`: sin canal resuelto exige que todas las variantes (entrante + items existentes) compartan `product.brand.id`; si abarcan >1 marca → `403`. (2) Nuevo middleware `validateCartCreateBrand`, cableado en `POST /store/carts`, valida los `items[]` inline antes de crear el carrito — canal objetivo = `body.sales_channel_id` o el de la publishable key; mezcla de marcas → `403`. Helper compartido `resolveVariantBrandInfo` + `checkVariantsAgainstChannel` (fail-closed si el lookup de variantes queda corto). Verificado con curl: `POST /store/carts` con items mixtos → 403, una marca → 200, sin items → 200; regresión de `/line-items` y `/complete` + checkout de una marca → orden, sin cambios; carrito con canal nulo + item de otra marca → 403. `pnpm run build` → 0 errores. |
 | **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
 
 ---
@@ -74,13 +75,10 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   en el `sales_channel_id` del carrito (verificado 2026-09-07). Cubierto por el
   middleware `validateCartLineItemBrand` (Task 7), cableado en
   `POST /store/carts/:id/line-items` y `POST /store/carts/:id/complete` — rechaza
-  (`403`) mezclar marcas. Follow-up pendiente: el guard llama `next()` cuando el
-  carrito no tiene `sales_channel_id` (o no existe) y no mira `cart.metadata.brand_id`;
-  carritos sin canal quedarían sin validar.
-- `POST /store/carts` con `items[]` inline puede crear un carrito ya mixto (200);
-  `validateCartLineItemBrand` solo lo bloquea al agregar más items o al completar
-  (`/complete` recorre `cart.items` y devuelve 403). Cubrir el create-with-items
-  si se quiere rechazo temprano.
+  (`403`) mezclar marcas. Los dos follow-ups que quedaban (carrito sin
+  `sales_channel_id` sin validar; `POST /store/carts` con `items[]` inline naciendo
+  mixto) están **resueltos** — ver fila "Carrito y marca — cierre de fugas" en la
+  tabla de ✅ Resuelto.
 
 ### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
@@ -370,3 +368,34 @@ deja responder al handler nativo. Verificado (ver Caso 3 arriba, re-verificació
   fuera de `KEY_TITLES` linkeada a un canal de marca; el path
   `variant -> product.sales_channels` del cart guard resuelve) — las 7 pasan.
 - `pnpm run build` → tsc 0 errores.
+
+### Cierre de fugas del carrito — `POST /store/carts` y carrito sin canal (2026-09-08)
+
+Refactor de `src/utils/brand-middleware.ts`: helper compartido
+`resolveVariantBrandInfo` (por variante: `product.brand.id` +
+`product.sales_channels.id`, fail-closed si el lookup queda corto) y
+`checkVariantsAgainstChannel` (con `channelIds` → cada producto debe estar en
+alguno; sin `channelIds` → todas las variantes deben compartir una sola marca).
+
+- **Task 2** — `validateCartLineItemBrand` ya no hace `next()` a ciegas cuando el
+  carrito no tiene `sales_channel_id`; aplica la regla de "marca única".
+- **Task 1** — nuevo `validateCartCreateBrand`, cableado en `POST /store/carts`,
+  valida los `items[]` inline antes de crear el carrito. Canal objetivo:
+  `body.sales_channel_id` explícito, si no el/los `sales_channel_ids` de la
+  publishable key; sin canal → regla de marca única.
+
+Verificación con curl (`medusa start` en `:9000`, build fresca, seed aplicado,
+`PK_URBAN` = `pk_140724…ebf3`):
+
+| Caso | Resultado |
+|---|---|
+| `POST /store/carts` con `items[]` Urban + Classic, `PK_URBAN` | **403** `not_allowed` |
+| `POST /store/carts` con `items[]` solo Classic, `PK_URBAN` (marca ajena a la key) | **403** |
+| `POST /store/carts` con `items[]` Urban + Urban, `PK_URBAN` | **200** |
+| `POST /store/carts` sin `items[]`, `PK_URBAN` | **200** |
+| `/line-items` add Urban → add Classic → add 2º Urban (regresión) | **200 / 403 / 200** |
+| Checkout una marca completo (`/complete`) | **orden** `order_01M21TA0…`, total 1069, sin regresión |
+| Carrito con `sales_channel_id` nulo (forzado en DB) + add variante de otra marca | **403** |
+| Mismo carrito sin canal + add variante de la misma marca | pasa al handler nativo (no lo bloquea el guard) |
+
+`pnpm run build` → 0 errores.
