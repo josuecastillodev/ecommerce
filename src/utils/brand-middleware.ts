@@ -32,6 +32,54 @@ export function extractBrandId(req: MedusaRequest): string | null {
 }
 
 /**
+ * Resuelve la marca del caller a partir del/los sales channel(s) de la
+ * publishable key del request (`req.publishable_key_context.sales_channel_ids`).
+ * Devuelve `null` si no hay contexto de pub key o si ningún canal está
+ * vinculado a una marca activa.
+ *
+ * Usado por las rutas store scopeadas por marca (`/store/brands/:slug/products`,
+ * `/store/categories*`) y por `resolveRequestBrandId` para derivar la marca del
+ * cliente autenticado sin depender de un header.
+ */
+export async function resolveCallerBrand(
+  req: MedusaRequest
+): Promise<{ id: string; slug: string; active: boolean } | null> {
+  const channelIds: string[] =
+    (req as any).publishable_key_context?.sales_channel_ids ?? []
+  if (channelIds.length === 0) {
+    return null
+  }
+
+  const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+  const { data: channels } = await query.graph({
+    entity: "sales_channel",
+    fields: ["id", "brand.id", "brand.slug", "brand.active"],
+    filters: { id: channelIds },
+  })
+
+  const brand = (channels as any[])
+    .map((c) => c.brand)
+    .find((b) => b && b.active)
+
+  return brand ?? null
+}
+
+/**
+ * Resuelve el brand_id del request: primero la marca de la publishable key
+ * (más confiable, no la puede falsificar el cliente), y si no hay pub key
+ * context o no resuelve, cae a `extractBrandId` (header/query/body).
+ */
+export async function resolveRequestBrandId(
+  req: MedusaRequest
+): Promise<string | null> {
+  const callerBrand = await resolveCallerBrand(req)
+  if (callerBrand) {
+    return callerBrand.id
+  }
+  return extractBrandId(req)
+}
+
+/**
  * Middleware to require brand_id in store requests
  * Storefronts should always send X-Brand-Id header
  */
@@ -93,7 +141,6 @@ export function validateCustomerBrand() {
     res: MedusaResponse,
     next: MedusaNextFunction
   ) => {
-    const brandId = extractBrandId(req)
     const customerId = (req as any).auth_context?.actor_id
 
     // Authentication is enforced by Medusa's native customer auth middleware.
@@ -102,10 +149,12 @@ export function validateCustomerBrand() {
       return next()
     }
 
+    const brandId = await resolveRequestBrandId(req)
+
     if (!brandId) {
       return res.status(400).json({
         type: "invalid_request",
-        message: "Se requiere el header X-Brand-Id.",
+        message: "Se requiere el header X-Brand-Id o una publishable key vinculada a una marca.",
       })
     }
 

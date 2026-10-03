@@ -7,6 +7,7 @@ import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { CATEGORY_MODULE } from "../../../../../modules/category"
 import type CategoryModuleService from "../../../../../modules/category/service"
+import { resolveCallerBrand } from "../../../../../utils/brand-middleware"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const categoryService: CategoryModuleService = req.scope.resolve(CATEGORY_MODULE)
@@ -21,22 +22,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   // Scope to the caller's brand, derived from the publishable key's sales
   // channel(s). A client-supplied `brand_id` query param is ignored — a
   // storefront only ever sees its own brand's catalog.
-  const channelIds =
-    (req as any).publishable_key_context?.sales_channel_ids ?? []
-  if (channelIds.length === 0) {
-    res.status(400).json({ message: "Missing publishable API key context" })
-    return
-  }
-
-  const { data: channels } = await query.graph({
-    entity: "sales_channel",
-    fields: ["id", "brand.id", "brand.slug", "brand.active"],
-    filters: { id: channelIds },
-  })
-  const callerBrand = channels
-    .map((c: any) => c.brand)
-    .find((b: any) => b && b.active)
-
+  const callerBrand = await resolveCallerBrand(req)
   if (!callerBrand) {
     res.status(400).json({ message: "Missing publishable API key context" })
     return
