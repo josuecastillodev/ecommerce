@@ -1,7 +1,7 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
-import { validateCustomerBrand, validateCartLineItemBrand } from "../utils/brand-middleware"
+import { validateCustomerBrand, validateCartLineItemBrand, validateCartCreateBrand } from "../utils/brand-middleware"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
 // second argument. These custom routes run their own query.graph with explicit
@@ -321,6 +321,11 @@ export default defineMiddlewares({
     // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
     // de la variante en el carrito)
     // ==================
+    {
+      matcher: "/store/carts",
+      method: "POST",
+      middlewares: [validateCartCreateBrand()],
+    },
     {
       matcher: "/store/carts/:id/line-items",
       method: "POST",
