@@ -53,27 +53,50 @@ const DashboardMetricsWidget = () => {
   const { brands, selectedBrand, isLoading: brandsLoading } = useBrands()
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    setError(null)
     fetchDashboardMetrics(selectedBrand?.id)
       .then((m) => {
         if (!cancelled) setMetrics(m)
       })
-      .catch((error) => console.error("Failed to load metrics:", error))
+      .catch((err) => {
+        console.error("Failed to load metrics:", err)
+        if (!cancelled) setError("No se pudieron cargar las métricas.")
+      })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [selectedBrand])
+  }, [selectedBrand, retryKey])
 
-  if (brandsLoading || isLoading || !metrics) {
+  if (brandsLoading || isLoading) {
     return (
       <Container className="p-6">
         <Text className="text-ui-fg-muted">Cargando métricas...</Text>
+      </Container>
+    )
+  }
+
+  if (error || !metrics) {
+    return (
+      <Container className="p-6">
+        <div className="flex items-center justify-between gap-4">
+          <Text className="text-ui-fg-error">{error || "No se pudieron cargar las métricas."}</Text>
+          <button
+            type="button"
+            onClick={() => setRetryKey((k) => k + 1)}
+            className="text-ui-fg-interactive text-sm hover:underline"
+          >
+            Reintentar
+          </button>
+        </div>
       </Container>
     )
   }

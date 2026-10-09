@@ -24,10 +24,13 @@ const LowStockAlertWidget = () => {
   const { selectedBrand } = useBrands()
   const [products, setProducts] = useState<LowStockProduct[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setIsLoading(true)
+    setError(null)
     fetchLowStockProducts(selectedBrand?.id, LOW_STOCK_THRESHOLD)
       .then((data) => {
         if (!cancelled) {
@@ -42,19 +45,39 @@ const LowStockAlertWidget = () => {
           setProducts(rows)
         }
       })
-      .catch((error) => console.error("Failed to load low stock products:", error))
+      .catch((err) => {
+        console.error("Failed to load low stock products:", err)
+        if (!cancelled) setError("No se pudo cargar la alerta de stock bajo.")
+      })
       .finally(() => {
         if (!cancelled) setIsLoading(false)
       })
     return () => {
       cancelled = true
     }
-  }, [selectedBrand])
+  }, [selectedBrand, retryKey])
 
   if (isLoading) {
     return (
       <Container className="p-4">
         <Text className="text-ui-fg-muted">Cargando...</Text>
+      </Container>
+    )
+  }
+
+  if (error) {
+    return (
+      <Container className="p-6 mt-6">
+        <div className="flex items-center justify-between gap-4">
+          <Text className="text-ui-fg-error">{error}</Text>
+          <button
+            type="button"
+            onClick={() => setRetryKey((k) => k + 1)}
+            className="text-ui-fg-interactive text-sm hover:underline"
+          >
+            Reintentar
+          </button>
+        </div>
       </Container>
     )
   }
