@@ -1,7 +1,7 @@
 /**
- * Admin Products API
- * GET /admin/products - List products with brand filtering
- * POST /admin/products - Create product with brand
+ * Admin Brand Products API
+ * GET /admin/brand-products - List products with brand filtering
+ * POST /admin/brand-products - Create product with brand
  */
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
@@ -9,7 +9,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { productValidators, VARIANT_STOCK_FIELDS, calculateTotalStock } from "../../../modules/product-extension"
 import { createProductWithBrandWorkflow } from "../../../workflows/create-product-with-brand"
 
-// GET /admin/products - List all products with filters
+// GET /admin/brand-products - List all products with filters
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
 
@@ -129,7 +129,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 }
 
-// POST /admin/products - Create product with brand
+// POST /admin/brand-products - Create product with brand
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   // Validate request body
   const parseResult = productValidators.createProduct.safeParse(req.body)

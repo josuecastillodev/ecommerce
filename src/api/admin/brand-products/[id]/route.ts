@@ -1,8 +1,8 @@
 /**
  * Admin Product Detail API
- * GET /admin/products/:id - Get single product
- * POST /admin/products/:id - Update product
- * DELETE /admin/products/:id - Delete product
+ * GET /admin/brand-products/:id - Get single product
+ * POST /admin/brand-products/:id - Update product
+ * DELETE /admin/brand-products/:id - Delete product
  */
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
@@ -10,7 +10,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { updateProductsWorkflow, deleteProductsWorkflow } from "@medusajs/medusa/core-flows"
 import { productValidators, VARIANT_STOCK_FIELDS, calculateVariantStock, calculateTotalStock } from "../../../../modules/product-extension"
 
-// GET /admin/products/:id - Get single product with full details
+// GET /admin/brand-products/:id - Get single product with full details
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { id } = req.params
@@ -81,7 +81,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 }
 
-// POST /admin/products/:id - Update product
+// POST /admin/brand-products/:id - Update product
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const { id } = req.params
 
@@ -130,7 +130,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   res.json({ product: products[0] })
 }
 
-// DELETE /admin/products/:id - Delete product
+// DELETE /admin/brand-products/:id - Delete product
 export async function DELETE(req: MedusaRequest, res: MedusaResponse) {
   const { id } = req.params
 
