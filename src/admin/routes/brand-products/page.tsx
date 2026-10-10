@@ -22,20 +22,10 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useBrands } from "../../hooks/use-brand"
 import { fetchProducts } from "../../lib/api"
+import type { BrandProduct } from "../../lib/types"
 
-interface Product {
-  id: string
-  title: string
-  handle: string
-  thumbnail: string | null
-  status: "draft" | "published"
-  metadata: { brand_id?: string } | null
-  brand: { id: string; name: string; primary_color: string } | null
-  price_range: { min: number; max: number } | null
-  variant_count: number
-  total_stock: number
-  created_at: string
-  // resolved client-side for rendering
+// resolved client-side for rendering
+type Product = BrandProduct & {
   brand_name: string
   brand_color: string
 }
@@ -60,7 +50,7 @@ const BrandProductsPage = () => {
   const loadProducts = async () => {
     setIsLoading(true)
     try {
-      const params: Record<string, any> = {
+      const params: Parameters<typeof fetchProducts>[0] = {
         offset: pagination.offset,
         limit: pagination.limit,
       }
@@ -76,10 +66,9 @@ const BrandProductsPage = () => {
       const data = await fetchProducts(params)
 
       // Transform data to include brand info
-      const transformedProducts = (data.products || []).map((p: any) => {
+      const transformedProducts: Product[] = (data.products || []).map((p) => {
         const brand =
-          p.brand ??
-          brands.find((b) => b.id === (p.metadata?.brand_id ?? p.brand_id))
+          p.brand ?? brands.find((b) => b.id === p.metadata?.brand_id)
         return {
           ...p,
           brand_name: brand?.name ?? "Sin marca",

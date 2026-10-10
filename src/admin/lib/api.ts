@@ -2,7 +2,7 @@
  * Admin API Functions for Multi-Brand
  */
 
-import type { Brand, DashboardMetrics } from "./types"
+import type { Brand, BrandProductListResponse, DashboardMetrics } from "./types"
 
 const API_BASE = "/admin"
 
@@ -108,7 +108,7 @@ export async function fetchProducts(params: {
   limit?: number
   offset?: number
   status?: string
-}) {
+}): Promise<BrandProductListResponse> {
   const searchParams = new URLSearchParams()
 
   if (params.brand_id) searchParams.set("brand_id", params.brand_id)
@@ -128,7 +128,10 @@ export async function fetchProducts(params: {
 /**
  * Fetch low stock products
  */
-export async function fetchLowStockProducts(brandId?: string, threshold = 10) {
+export async function fetchLowStockProducts(
+  brandId?: string,
+  threshold = 10
+): Promise<BrandProductListResponse> {
   const params = new URLSearchParams()
   params.set("low_stock", "true")
   params.set("threshold", String(threshold))

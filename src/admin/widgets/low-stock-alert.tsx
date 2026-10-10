@@ -34,7 +34,7 @@ const LowStockAlertWidget = () => {
     fetchLowStockProducts(selectedBrand?.id, LOW_STOCK_THRESHOLD)
       .then((data) => {
         if (!cancelled) {
-          const rows: LowStockProduct[] = (data.products || []).map((p: any) => ({
+          const rows: LowStockProduct[] = (data.products || []).map((p) => ({
             id: p.id,
             title: p.title,
             sku: p.variants?.[0]?.sku ?? "—",
