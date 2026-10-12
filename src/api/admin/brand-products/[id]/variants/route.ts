@@ -1,7 +1,7 @@
 /**
  * Admin Product Variants API
- * GET /admin/products/:id/variants - List variants
- * POST /admin/products/:id/variants - Add variant
+ * GET /admin/brand-products/:id/variants - List variants
+ * POST /admin/brand-products/:id/variants - Add variant
  */
 
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
@@ -9,7 +9,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { productValidators, AVAILABLE_SIZES, VARIANT_STOCK_FIELDS, calculateVariantStock } from "../../../../../modules/product-extension"
 import { addVariantToProductWorkflow } from "../../../../../workflows/add-variant-to-product"
 
-// GET /admin/products/:id/variants - List all variants for a product
+// GET /admin/brand-products/:id/variants - List all variants for a product
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { id: productId } = req.params
@@ -84,7 +84,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 }
 
-// POST /admin/products/:id/variants - Add a new variant
+// POST /admin/brand-products/:id/variants - Add a new variant
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const { id: productId } = req.params
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
