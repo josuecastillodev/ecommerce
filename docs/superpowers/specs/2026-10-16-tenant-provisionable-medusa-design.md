@@ -166,7 +166,7 @@ brand ↔ sales channel**, nunca por nombre.
 
 | Caso | Acción |
 |---|---|
-| En la config, no en la DB | Crea la marca (estructura + apariencia), su sales channel (nombre = `name` de la marca), el link, una publishable key `"<name> Storefront"` ligada solo a ese canal, y liga el canal al almacén |
+| En la config, no en la DB | Crea la marca (estructura + apariencia), su sales channel (nombre = `name` de la marca), el link, una publishable key `"<name> Storefront"` ligada solo a ese canal, y liga el canal a **todas** las stock locations del tenant (normalmente una; si el cliente agrega almacenes después, los canales nuevos también los ven) |
 | En ambas | Actualiza `name` y `active`. Si cambió `name`, renombra el canal y el título de la key. **No toca la apariencia** |
 | En la DB, no en la config | **Nunca se borra** (tiene productos y órdenes). Se desactiva: `active=false`, canal `is_disabled=true`, keys revocadas |
 | Inactiva en la DB y vuelve a la config activa | Se reactiva: `active=true`, canal habilitado, **key nueva** (las revocadas no se reusan). Conserva la apariencia que haya puesto el cliente |
@@ -194,8 +194,7 @@ El control plane lo necesita para configurar cada storefront.
   sin espera). El locking se configura con el proveedor Redis para que también excluya un
   `apply` por CLI mientras el server corre otro. Si el lock está tomado, el endpoint
   responde 409 y el CLI termina con error.
-- **Rollback:** los pasos que crean cosas tienen compensación; si falla un paso, el workflow
-  revierte lo que ya hizo.
+- **Rollback:** si el paso 2 falla, su compensación borra lo que ese apply **creó** (keys, canales, marcas nuevas). Las actualizaciones y el paso 1 no se revierten: son convergentes (buscar por clave natural antes de crear), así que reintentar el apply termina en el mismo estado.
 
 ## Puertas de entrada
 
