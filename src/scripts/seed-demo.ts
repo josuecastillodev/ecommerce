@@ -1,20 +1,13 @@
 import type { ExecArgs } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
 import {
-  createApiKeysWorkflow,
   createCustomerAccountWorkflow,
   createInventoryLevelsWorkflow,
-  createRegionsWorkflow,
-  createSalesChannelsWorkflow,
-  createShippingOptionsWorkflow,
-  createShippingProfilesWorkflow,
-  createStockLocationsWorkflow,
-  createTaxRegionsWorkflow,
-  linkProductsToSalesChannelWorkflow,
-  linkSalesChannelsToApiKeyWorkflow,
-  linkSalesChannelsToStockLocationWorkflow,
-  updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows"
+import { readFileSync } from "fs"
+import path from "path"
+import { TenantConfigSchema } from "../tenant/config-schema"
+import { runTenantApply } from "../tenant/run-apply"
 import { BRAND_MODULE } from "../modules/brand"
 import { CATEGORY_MODULE } from "../modules/category"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
@@ -24,369 +17,42 @@ import type CustomerBrandModuleService from "../modules/customer-brand/service"
 import { createProductWithBrandWorkflow } from "../workflows/create-product-with-brand"
 import type { CreateProductWithBrandInput } from "../modules/product-extension/types"
 
-const MANUAL_FULFILLMENT_PROVIDER = "manual_manual"
-
-/**
- * Ignore "already linked" errors so the seed stays idempotent.
- */
-async function safeLink(fn: () => Promise<unknown>) {
-  try {
-    await fn()
-  } catch (error: any) {
-    if (!/already exist|duplicate|unique/i.test(error?.message ?? "")) {
-      throw error
-    }
-  }
-}
-
-export default async function seed({ container }: ExecArgs) {
+export default async function seedDemo({ container }: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const link = container.resolve(ContainerRegistrationKeys.LINK)
 
   const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
   const categoryService: CategoryModuleService = container.resolve(CATEGORY_MODULE)
   const customerBrandService: CustomerBrandModuleService =
     container.resolve(CUSTOMER_BRAND_MODULE)
 
-  const storeModule = container.resolve(Modules.STORE)
-  const salesChannelModule = container.resolve(Modules.SALES_CHANNEL)
-  const regionModule = container.resolve(Modules.REGION)
-  const taxModule = container.resolve(Modules.TAX)
   const stockLocationModule = container.resolve(Modules.STOCK_LOCATION)
-  const fulfillmentModule = container.resolve(Modules.FULFILLMENT)
-  const apiKeyModule = container.resolve(Modules.API_KEY)
   const authModule = container.resolve(Modules.AUTH)
   const customerModule = container.resolve(Modules.CUSTOMER)
 
-  logger.info("Starting seed process...")
+  logger.info("Starting demo seed...")
 
   // ============================================================
-  // 0. Commerce fundamentals (region, channel, fulfillment, key)
+  // 0-1. Tenant: valores iniciales + marcas desde tenants/demo.json
   // ============================================================
-  logger.info("Seeding commerce fundamentals...")
-
-  // Sales channel por defecto del store — Medusa crea uno en el primer boot.
-  // NO se usa para storefronts (no lleva publishable key); solo es el fallback
-  // del store. Los canales de marca se crean más abajo, después de las brands.
-  let [defaultSalesChannel] = await salesChannelModule.listSalesChannels(
-    {},
-    { take: 1, order: { created_at: "ASC" } }
+  const demoConfig = TenantConfigSchema.parse(
+    JSON.parse(readFileSync(path.resolve(process.cwd(), "tenants/demo.json"), "utf8"))
   )
-  if (!defaultSalesChannel) {
-    const { result } = await createSalesChannelsWorkflow(container).run({
-      input: { salesChannelsData: [{ name: "Default Sales Channel" }] },
-    })
-    defaultSalesChannel = result[0]
-    logger.info("Created default sales channel")
-  }
-
-  // Store — set MXN as the default supported currency + default channel.
-  const [store] = await storeModule.listStores()
-  if (store) {
-    await updateStoresWorkflow(container).run({
-      input: {
-        selector: { id: store.id },
-        update: {
-          supported_currencies: [{ currency_code: "mxn", is_default: true }],
-          default_sales_channel_id: defaultSalesChannel.id,
-        },
-      },
-    })
-  }
-
-  // Region — Mexico, MXN, cards + OXXO + manual.
-  let [region] = await regionModule.listRegions({ name: "México" })
-  if (!region) {
-    const { result } = await createRegionsWorkflow(container).run({
-      input: {
-        regions: [
-          {
-            name: "México",
-            currency_code: "mxn",
-            countries: ["mx"],
-            payment_providers: [
-              "pp_system_default",
-              "pp_stripe_stripe",
-              "pp_stripe-oxxo_stripe",
-            ],
-          },
-        ],
-      },
-    })
-    region = result[0]
-    logger.info("Created region: México")
-  }
-
-  // Tax region — MX. `provider_id` must be set explicitly: Medusa only
-  // backfills "tp_system" on regions that already existed at migration time
-  // (migrate-tax-region-provider.js), not on regions created afterwards by
-  // this seed — leaving it unset breaks tax calculation on every cart
-  // (500 "Unable to retrieve the tax provider with id: null").
-  const existingTaxRegions = await taxModule.listTaxRegions({ country_code: "mx" })
-  if (existingTaxRegions.length === 0) {
-    await createTaxRegionsWorkflow(container).run({
-      input: [{ country_code: "mx", provider_id: "tp_system" }],
-    })
-    logger.info("Created tax region: MX")
-  }
-
-  // Stock location — a single warehouse in CDMX.
-  let [stockLocation] = await stockLocationModule.listStockLocations({
-    name: "Almacén CDMX",
-  })
-  if (!stockLocation) {
-    const { result } = await createStockLocationsWorkflow(container).run({
-      input: {
-        locations: [
-          {
-            name: "Almacén CDMX",
-            address: {
-              address_1: "Av. Paseo de la Reforma 1",
-              city: "Ciudad de México",
-              country_code: "mx",
-              postal_code: "06600",
-            },
-          },
-        ],
-      },
-    })
-    stockLocation = result[0]
-    logger.info("Created stock location: Almacén CDMX")
-  }
-
-  await safeLink(() =>
-    link.create({
-      [Modules.STOCK_LOCATION]: { stock_location_id: stockLocation.id },
-      [Modules.FULFILLMENT]: {
-        fulfillment_provider_id: MANUAL_FULFILLMENT_PROVIDER,
-      },
-    })
-  )
-
-  // Fulfillment set + service zone for Mexico.
-  let [fulfillmentSet] = await fulfillmentModule.listFulfillmentSets(
-    { name: "Envíos MX" },
-    { relations: ["service_zones"] }
-  )
-  if (!fulfillmentSet) {
-    fulfillmentSet = await fulfillmentModule.createFulfillmentSets({
-      name: "Envíos MX",
-      type: "shipping",
-      service_zones: [
-        {
-          name: "México",
-          geo_zones: [{ country_code: "mx", type: "country" }],
-        },
-      ],
-    })
-    logger.info("Created fulfillment set: Envíos MX")
-  }
-
-  let serviceZones = fulfillmentSet.service_zones ?? []
-  if (serviceZones.length === 0) {
-    const [reloaded] = await fulfillmentModule.listFulfillmentSets(
-      { id: fulfillmentSet.id },
-      { relations: ["service_zones"] }
-    )
-    serviceZones = reloaded?.service_zones ?? []
-  }
-  const serviceZone = serviceZones[0]
-
-  await safeLink(() =>
-    link.create({
-      [Modules.STOCK_LOCATION]: { stock_location_id: stockLocation.id },
-      [Modules.FULFILLMENT]: { fulfillment_set_id: fulfillmentSet.id },
-    })
-  )
-
-  // Shipping profile — reuse Medusa's default.
-  let [shippingProfile] = await fulfillmentModule.listShippingProfiles({
-    type: "default",
-  })
-  if (!shippingProfile) {
-    const { result } = await createShippingProfilesWorkflow(container).run({
-      input: { data: [{ name: "Default", type: "default" }] },
-    })
-    shippingProfile = result[0]
-  }
-
-  // Shipping options — standard + express, priced in MXN. Medusa v2's money
-  // model stores `amount` in decimal (major units), not cents — see
-  // node_modules/@medusajs/dashboard/src/lib/money-amount-helpers.ts and the
-  // data-grid currency cell, neither of which scale by 100.
-  const existingShippingOptions = await fulfillmentModule.listShippingOptions({
-    name: ["Envío Estándar", "Envío Exprés"],
-  })
-  if (existingShippingOptions.length < 2 && serviceZone) {
-    await createShippingOptionsWorkflow(container).run({
-      input: [
-        {
-          name: "Envío Estándar",
-          price_type: "flat",
-          provider_id: MANUAL_FULFILLMENT_PROVIDER,
-          service_zone_id: serviceZone.id,
-          shipping_profile_id: shippingProfile.id,
-          type: {
-            label: "Estándar",
-            description: "Entrega en 3-5 días hábiles",
-            code: "standard",
-          },
-          prices: [
-            { currency_code: "mxn", amount: 99 },
-            { region_id: region.id, amount: 99 },
-          ],
-          rules: [
-            { attribute: "enabled_in_store", value: "true", operator: "eq" },
-            { attribute: "is_return", value: "false", operator: "eq" },
-          ],
-        },
-        {
-          name: "Envío Exprés",
-          price_type: "flat",
-          provider_id: MANUAL_FULFILLMENT_PROVIDER,
-          service_zone_id: serviceZone.id,
-          shipping_profile_id: shippingProfile.id,
-          type: {
-            label: "Exprés",
-            description: "Entrega en 1-2 días hábiles",
-            code: "express",
-          },
-          prices: [
-            { currency_code: "mxn", amount: 199 },
-            { region_id: region.id, amount: 199 },
-          ],
-          rules: [
-            { attribute: "enabled_in_store", value: "true", operator: "eq" },
-            { attribute: "is_return", value: "false", operator: "eq" },
-          ],
-        },
-      ],
-    })
-    logger.info("Created shipping options: Estándar + Exprés")
-  }
-
-  // ==================
-  // 1. Create Brands
-  // ==================
-  logger.info("Seeding brands...")
-
-  const brandsData = [
-    {
-      name: "Urban Street",
-      slug: "urban-street",
-      description: "Streetwear urbano para jóvenes audaces",
-      primary_color: "#1A1A1A",
-      secondary_color: "#FF4444",
-      active: true,
-      metadata: {
-        target_audience: "18-30",
-        style: "streetwear",
-      },
-    },
-    {
-      name: "Classic Threads",
-      slug: "classic-threads",
-      description: "Moda clásica y atemporal para toda ocasión",
-      primary_color: "#2C3E50",
-      secondary_color: "#ECF0F1",
-      active: true,
-      metadata: {
-        target_audience: "25-45",
-        style: "classic",
-      },
-    },
-  ]
+  const applyResult = await runTenantApply(container, demoConfig)
+  logger.info(`Tenant demo aplicado (bootstrapped: ${applyResult.bootstrapped})`)
 
   const brands: Record<string, any> = {}
-
-  for (const brandData of brandsData) {
-    let brand = await brandService.findBySlug(brandData.slug)
-
-    if (!brand) {
-      brand = await brandService.createBrands(brandData)
-      logger.info(`Created brand: ${brandData.name}`)
-    } else {
-      logger.info(`Brand already exists: ${brandData.name}`)
-    }
-
-    brands[brandData.slug] = brand
+  for (const b of demoConfig.brands) {
+    brands[b.slug] = await brandService.findBySlug(b.slug)
   }
 
-  // ============================================================
-  // 1b. Un sales channel + una publishable key por marca
-  // ============================================================
-  logger.info("Seeding per-brand sales channels + publishable keys...")
-
-  const BRAND_CHANNELS: Record<string, string> = {
-    "urban-street": "Urban Street",
-    "classic-threads": "Classic Threads",
+  const [stockLocation] = await stockLocationModule.listStockLocations({
+    name: demoConfig.initial.stock_location.name,
+  })
+  if (!stockLocation) {
+    throw new Error(`No existe la stock location "${demoConfig.initial.stock_location.name}"`)
   }
 
-  // brandSlug -> { channelId, keyToken }
-  const brandChannels: Record<string, { channelId: string; keyToken: string }> = {}
-
-  for (const [slug, channelName] of Object.entries(BRAND_CHANNELS)) {
-    const brand = brands[slug]
-    if (!brand) {
-      logger.error(`Cannot create channel: brand "${slug}" missing`)
-      continue
-    }
-
-    // 1. Sales channel (idempotente por nombre).
-    let [channel] = await salesChannelModule.listSalesChannels({ name: channelName })
-    if (!channel) {
-      const { result } = await createSalesChannelsWorkflow(container).run({
-        input: { salesChannelsData: [{ name: channelName }] },
-      })
-      channel = result[0]
-      logger.info(`Created sales channel: ${channelName}`)
-    }
-
-    // 2. Link brand <-> sales channel (idempotente).
-    const { data: linkedBrand } = await query.graph({
-      entity: "brand",
-      fields: ["id", "sales_channel.id"],
-      filters: { id: brand.id },
-    })
-    if (linkedBrand[0]?.sales_channel?.id !== channel.id) {
-      await safeLink(() =>
-        link.create({
-          [BRAND_MODULE]: { brand_id: brand.id },
-          [Modules.SALES_CHANNEL]: { sales_channel_id: channel.id },
-        })
-      )
-      logger.info(`Linked brand ${channelName} <-> its sales channel`)
-    }
-
-    // 3. Link canal <-> stock location compartido (idempotente vía workflow).
-    await linkSalesChannelsToStockLocationWorkflow(container).run({
-      input: { id: stockLocation.id, add: [channel.id] },
-    })
-
-    // 4. Publishable key homónima (idempotente por título).
-    const keyTitle = `${channelName} Storefront`
-    let [pubKey] = await apiKeyModule.listApiKeys({
-      title: keyTitle,
-      type: "publishable",
-    })
-    if (!pubKey) {
-      const { result } = await createApiKeysWorkflow(container).run({
-        input: {
-          api_keys: [
-            { title: keyTitle, type: "publishable", created_by: "seed" },
-          ],
-        },
-      })
-      pubKey = result[0]
-      logger.info(`Created publishable key: ${keyTitle}`)
-    }
-    await linkSalesChannelsToApiKeyWorkflow(container).run({
-      input: { id: pubKey.id, add: [channel.id] },
-    })
-
-    brandChannels[slug] = { channelId: channel.id, keyToken: pubKey.token }
-  }
 
   // ==================
   // 2. Create Categories
@@ -703,63 +369,8 @@ export default async function seed({ container }: ExecArgs) {
   }
 
   // ============================================================
-  // 4. Make products purchasable: sales channel + inventory
+  // 4. Make products purchasable: inventory
   // ============================================================
-  // Linkear cada producto al sales channel de SU marca (idempotente) y
-  // sacarlo de cualquier otro canal (limpieza de estados legacy donde todos
-  // los productos colgaban de un canal compartido).
-  const { data: allProducts } = await query.graph({
-    entity: "product",
-    fields: ["id", "title", "brand.slug", "sales_channels.id"],
-  })
-
-  const productsWithoutBrand: string[] = []
-  let linkedCount = 0
-
-  for (const p of allProducts as any[]) {
-    const slug = p.brand?.slug
-    const target = slug ? brandChannels[slug]?.channelId : undefined
-    if (!target) {
-      productsWithoutBrand.push(p.title)
-      continue
-    }
-    const current: string[] = (p.sales_channels ?? []).map((c: any) => c.id)
-    const toAdd = current.includes(target) ? [] : [target]
-    const toRemove = current.filter((id) => id !== target)
-    if (toAdd.length > 0) {
-      await linkProductsToSalesChannelWorkflow(container).run({
-        input: { id: target, add: [p.id], remove: [] },
-      })
-      linkedCount++
-    }
-    for (const staleChannelId of toRemove) {
-      await linkProductsToSalesChannelWorkflow(container).run({
-        input: { id: staleChannelId, add: [], remove: [p.id] },
-      })
-    }
-  }
-
-  logger.info(`Linked ${linkedCount} products to their brand channel`)
-  if (productsWithoutBrand.length > 0) {
-    logger.warn(
-      `Products without a brand link (left out of every channel): ${productsWithoutBrand.join(", ")}`
-    )
-  }
-
-  // Revoke any legacy publishable key (pre-migration single "Storefront" key).
-  const brandKeyTitles = new Set(
-    Object.values(BRAND_CHANNELS).map((name) => `${name} Storefront`)
-  )
-  const allPublishableKeys = await apiKeyModule.listApiKeys({
-    type: "publishable",
-  })
-  for (const k of allPublishableKeys) {
-    if (!brandKeyTitles.has(k.title) && !k.revoked_at) {
-      await apiKeyModule.revoke(k.id, { revoked_by: "seed" })
-      logger.info(`Revoked legacy publishable key: ${k.title}`)
-    }
-  }
-
   const { data: inventoryItems } = await query.graph({
     entity: "inventory_item",
     fields: ["id"],
@@ -861,9 +472,9 @@ export default async function seed({ container }: ExecArgs) {
   logger.info(`  - Brands: ${Object.keys(brands).length}`)
   logger.info(`  - Categories: ${Object.keys(categories).length}`)
   logger.info(`  - Products: ${productsData.length}`)
-  logger.info(`  - Region: México (MXN, cards + OXXO)`)
-  for (const [slug, bc] of Object.entries(brandChannels)) {
-    logger.info(`  - Publishable key [${BRAND_CHANNELS[slug]}]: ${bc.keyToken}`)
+  logger.info(`  - Region: ${demoConfig.initial.region.name} (${demoConfig.initial.currency.toUpperCase()})`)
+  for (const b of applyResult.brands) {
+    logger.info(`  - Publishable key [${b.slug}]: ${b.publishable_key}`)
   }
   logger.info(`  - Test customers: ana@urban-street.mx / luis@classic-threads.mx (pass: ${TEST_CUSTOMER_PASSWORD})`)
 }
