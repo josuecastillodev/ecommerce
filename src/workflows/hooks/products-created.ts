@@ -6,6 +6,7 @@
  */
 import { createProductsWorkflow, linkProductsToSalesChannelWorkflow } from "@medusajs/medusa/core-flows"
 import { StepResponse } from "@medusajs/framework/workflows-sdk"
+import type { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
 import { BRAND_MODULE } from "../../modules/brand"
 
@@ -45,38 +46,53 @@ createProductsWorkflow.hooks.productsCreated(
       }))
     )
 
-    // El form nativo asigna el canal default; el producto debe vivir solo en el de su marca.
-    const { data: withChannels } = await query.graph({
-      entity: "product",
-      fields: ["id", "sales_channels.id"],
-      filters: { id: productIds },
-    })
-    const otherChannels = new Set(
-      withChannels.flatMap((p: any) => (p.sales_channels ?? []).map((sc: any) => sc.id))
-    )
-    otherChannels.delete(channelId)
-    for (const id of otherChannels) {
-      await linkProductsToSalesChannelWorkflow(container).run({
-        input: { id, add: [], remove: productIds },
+    const undoData = { brandId, channelId, productIds }
+    try {
+      // El form nativo asigna el canal default; el producto debe vivir solo en el de su marca.
+      const { data: withChannels } = await query.graph({
+        entity: "product",
+        fields: ["id", "sales_channels.id"],
+        filters: { id: productIds },
       })
+      const otherChannels = new Set(
+        withChannels.flatMap((p: any) => (p.sales_channels ?? []).map((sc: any) => sc.id))
+      )
+      otherChannels.delete(channelId)
+      for (const id of otherChannels) {
+        await linkProductsToSalesChannelWorkflow(container).run({
+          input: { id, add: [], remove: productIds },
+        })
+      }
+      await linkProductsToSalesChannelWorkflow(container).run({
+        input: { id: channelId, add: productIds, remove: [] },
+      })
+    } catch (e) {
+      // La compensación no corre si el propio step falla; deshacer el link de marca a mano.
+      await undoBrandLink(undoData, container)
+      throw e
     }
-    await linkProductsToSalesChannelWorkflow(container).run({
-      input: { id: channelId, add: productIds, remove: [] },
-    })
 
-    return new StepResponse(undefined, { brandId, channelId, productIds })
+    return new StepResponse(undefined, undoData)
   },
   async (data, { container }) => {
     if (!data) return
-    const remoteLink = container.resolve(ContainerRegistrationKeys.REMOTE_LINK)
-    await remoteLink.dismiss(
-      data.productIds.map((product_id) => ({
-        [BRAND_MODULE]: { brand_id: data.brandId },
-        [Modules.PRODUCT]: { product_id },
-      }))
-    )
-    await linkProductsToSalesChannelWorkflow(container).run({
-      input: { id: data.channelId, add: [], remove: data.productIds },
-    })
+    await undoBrandLink(data, container)
   }
 )
+
+// No restaura el canal default removido: solo corre en rollback, donde el producto se borra.
+async function undoBrandLink(
+  data: { brandId: string; channelId: string; productIds: string[] },
+  container: MedusaContainer
+) {
+  const remoteLink = container.resolve(ContainerRegistrationKeys.REMOTE_LINK)
+  await remoteLink.dismiss(
+    data.productIds.map((product_id) => ({
+      [BRAND_MODULE]: { brand_id: data.brandId },
+      [Modules.PRODUCT]: { product_id },
+    }))
+  )
+  await linkProductsToSalesChannelWorkflow(container).run({
+    input: { id: data.channelId, add: [], remove: data.productIds },
+  })
+}

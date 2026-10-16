@@ -340,6 +340,7 @@ export default defineMiddlewares({
       method: "POST",
       middlewares: [rejectUnbrandedProductCreate()],
     },
+
     // ==================
     // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
     // de la variante en el carrito)
