@@ -15,6 +15,7 @@
     "dev": "medusa develop",
     "start": "medusa start",
     "seed": "medusa exec ./src/scripts/seed.ts",
+    "tenant:apply": "medusa exec ./src/scripts/tenant-apply.ts",
     "db:generate": "medusa db:generate",
     "db:migrate": "medusa db:migrate",
     "db:rollback": "medusa db:rollback",
