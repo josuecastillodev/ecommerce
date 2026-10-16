@@ -78,6 +78,26 @@ pnpm run dev
 
 El servidor estará disponible en `http://localhost:9000` (admin en `/app`)
 
+## Alta de un tenant
+
+Cada tenant (un negocio, con una o varias marcas) es una instancia de Medusa con su propia DB. La config del tenant la empuja el control plane; en local se aplica desde un archivo.
+
+```bash
+# 1. DB vacía + migraciones
+pnpm run db:migrate
+# 2. Config del tenant (región, almacén, envíos iniciales y marcas)
+pnpm run tenant:apply tenants/demo.json
+# 3. Usuario admin
+npx medusa user -e admin@acme.mx -p <password>
+```
+
+- Formato de la config: ver `tenants/demo.json` y `src/tenant/config-schema.ts`.
+- `initial` (región, impuestos, almacén, envíos) se aplica **una sola vez**; después se gestiona en el admin de Medusa.
+- `brands` se sincroniza en cada apply: crea marca + sales channel + publishable key; las marcas que salen de la config se desactivan (nunca se borran).
+- La apariencia de cada marca (logo, colores, descripción) la edita el cliente en el admin de Medusa; nombre, slug y estado solo desde el control plane.
+- El control plane usa `POST /internal/tenant/apply` con `Authorization: Bearer $CONTROL_PLANE_TOKEN`. Sin `CONTROL_PLANE_TOKEN` en el `.env`, el endpoint no existe.
+- Datos de demo (Urban Street + Classic Threads, productos, clientes de prueba): `pnpm run seed`.
+
 ## Estructura del Proyecto
 
 ```
