@@ -8,25 +8,22 @@ import {
   Container,
   Heading,
   Text,
-  Button,
   Table,
   Badge,
   DropdownMenu,
   IconButton,
-  usePrompt,
   toast,
 } from "@medusajs/ui"
-import { EllipsisHorizontal, PencilSquare, Trash, Plus, BuildingStorefront } from "@medusajs/icons"
+import { EllipsisHorizontal, PencilSquare, BuildingStorefront } from "@medusajs/icons"
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import type { Brand } from "../../lib/types"
-import { fetchBrands, deleteBrand } from "../../lib/api"
+import { fetchBrands } from "../../lib/api"
 
 const BrandsPage = () => {
   const [brands, setBrands] = useState<Brand[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const navigate = useNavigate()
-  const prompt = usePrompt()
 
   useEffect(() => {
     loadBrands()
@@ -46,29 +43,6 @@ const BrandsPage = () => {
     }
   }
 
-  const handleDelete = async (brand: Brand) => {
-    const confirmed = await prompt({
-      title: "Eliminar marca",
-      description: `¿Estás seguro de que deseas eliminar "${brand.name}"? Esta acción no se puede deshacer.`,
-      confirmText: "Eliminar",
-      cancelText: "Cancelar",
-    })
-
-    if (confirmed) {
-      try {
-        await deleteBrand(brand.id)
-        toast.success("Marca eliminada", {
-          description: `${brand.name} ha sido eliminada correctamente`,
-        })
-        loadBrands()
-      } catch (error) {
-        toast.error("Error", {
-          description: "No se pudo eliminar la marca",
-        })
-      }
-    }
-  }
-
   return (
     <Container className="p-8">
       {/* Header */}
@@ -81,10 +55,6 @@ const BrandsPage = () => {
             Administra las marcas de tu tienda multi-marca
           </Text>
         </div>
-        <Button onClick={() => navigate("/brands/create")}>
-          <Plus />
-          Nueva Marca
-        </Button>
       </div>
 
       {/* Brands Table */}
@@ -98,13 +68,9 @@ const BrandsPage = () => {
           <Heading level="h2" className="mb-2">
             No hay marcas
           </Heading>
-          <Text className="text-ui-fg-muted mb-4">
-            Crea tu primera marca para comenzar
+          <Text size="small" className="text-ui-fg-muted">
+            Las marcas se dan de alta desde el control plane del tenant.
           </Text>
-          <Button onClick={() => navigate("/brands/create")}>
-            <Plus />
-            Crear marca
-          </Button>
         </div>
       ) : (
         <Table>
@@ -191,14 +157,6 @@ const BrandsPage = () => {
                       <DropdownMenu.Item onClick={() => navigate(`/brands/${brand.id}`)}>
                         <PencilSquare className="mr-2" />
                         Editar
-                      </DropdownMenu.Item>
-                      <DropdownMenu.Separator />
-                      <DropdownMenu.Item
-                        onClick={() => handleDelete(brand)}
-                        className="text-ui-fg-error"
-                      >
-                        <Trash className="mr-2" />
-                        Eliminar
                       </DropdownMenu.Item>
                     </DropdownMenu.Content>
                   </DropdownMenu>

@@ -33,31 +33,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   })
 }
 
-// POST /admin/brands - Create a new brand
-export async function POST(req: MedusaRequest, res: MedusaResponse) {
-  const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
-
-  const { name, slug, logo_url, primary_color, secondary_color, description, active, metadata } = req.body as {
-    name: string
-    slug: string
-    logo_url?: string
-    primary_color?: string
-    secondary_color?: string
-    description?: string
-    active?: boolean
-    metadata?: Record<string, unknown>
-  }
-
-  const brand = await brandService.createBrands({
-    name,
-    slug,
-    logo_url,
-    primary_color,
-    secondary_color,
-    description,
-    active: active ?? true,
-    metadata,
+// Las marcas se crean desde el control plane (POST /internal/tenant/apply).
+export async function POST(_req: MedusaRequest, res: MedusaResponse) {
+  res.status(403).json({
+    type: "not_allowed",
+    message: "Las marcas se crean desde el control plane del tenant.",
   })
-
-  res.status(201).json({ brand })
 }

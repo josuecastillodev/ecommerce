@@ -34,29 +34,14 @@ export async function fetchBrand(id: string): Promise<Brand> {
   return data.brand
 }
 
-/**
- * Create brand
- */
-export async function createBrand(data: Partial<Brand>): Promise<Brand> {
-  const response = await fetch(`${API_BASE}/brands`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.message || "Failed to create brand")
-  }
-
-  const result = await response.json()
-  return result.brand
-}
+export type BrandAppearance = Partial<
+  Pick<Brand, "logo_url" | "primary_color" | "secondary_color" | "description">
+>
 
 /**
- * Update brand
+ * Update brand appearance (name/slug/active come from the control plane)
  */
-export async function updateBrand(id: string, data: Partial<Brand>): Promise<Brand> {
+export async function updateBrand(id: string, data: BrandAppearance): Promise<Brand> {
   const response = await fetch(`${API_BASE}/brands/${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -70,19 +55,6 @@ export async function updateBrand(id: string, data: Partial<Brand>): Promise<Bra
 
   const result = await response.json()
   return result.brand
-}
-
-/**
- * Delete brand
- */
-export async function deleteBrand(id: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/brands/${id}`, {
-    method: "DELETE",
-  })
-
-  if (!response.ok) {
-    throw new Error("Failed to delete brand")
-  }
 }
 
 /**

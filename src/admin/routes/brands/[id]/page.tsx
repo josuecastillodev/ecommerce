@@ -14,18 +14,16 @@ import {
   Switch,
   Badge,
   toast,
-  usePrompt,
 } from "@medusajs/ui"
-import { ArrowLeft, Trash } from "@medusajs/icons"
+import { ArrowLeft } from "@medusajs/icons"
 import { useState, useEffect } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import type { Brand } from "../../../lib/types"
-import { fetchBrand, updateBrand, deleteBrand } from "../../../lib/api"
+import { fetchBrand, updateBrand } from "../../../lib/api"
 
 const EditBrandPage = () => {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
-  const prompt = usePrompt()
 
   const [brand, setBrand] = useState<Brand | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -78,13 +76,10 @@ const EditBrandPage = () => {
 
     try {
       await updateBrand(id, {
-        name: formData.name,
-        slug: formData.slug,
         description: formData.description || null,
         logo_url: formData.logo_url || null,
         primary_color: formData.primary_color,
         secondary_color: formData.secondary_color,
-        active: formData.active,
       })
 
       toast.success("Marca actualizada", {
@@ -98,31 +93,6 @@ const EditBrandPage = () => {
       })
     } finally {
       setIsSubmitting(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!brand) return
-
-    const confirmed = await prompt({
-      title: "Eliminar marca",
-      description: `¿Estás seguro de que deseas eliminar "${brand.name}"? Esta acción no se puede deshacer y eliminará todos los productos asociados.`,
-      confirmText: "Eliminar",
-      cancelText: "Cancelar",
-    })
-
-    if (confirmed) {
-      try {
-        await deleteBrand(brand.id)
-        toast.success("Marca eliminada", {
-          description: `${brand.name} ha sido eliminada correctamente`,
-        })
-        navigate("/brands")
-      } catch (error) {
-        toast.error("Error", {
-          description: "No se pudo eliminar la marca",
-        })
-      }
     }
   }
 
@@ -172,6 +142,9 @@ const EditBrandPage = () => {
           <Heading level="h2" className="mb-4">
             Información básica
           </Heading>
+          <Text size="small" className="text-ui-fg-muted">
+            Nombre, slug y estado se gestionan desde el control plane del tenant.
+          </Text>
 
           <div>
             <Label htmlFor="name">Nombre de la marca *</Label>
@@ -179,10 +152,7 @@ const EditBrandPage = () => {
               id="name"
               placeholder="Ej: Urban Street"
               value={formData.name}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, name: e.target.value }))
-              }
-              required
+              disabled
             />
           </div>
 
@@ -192,9 +162,7 @@ const EditBrandPage = () => {
               id="slug"
               placeholder="urban-street"
               value={formData.slug}
-              onChange={(e) =>
-                setFormData((prev) => ({ ...prev, slug: e.target.value }))
-              }
+              disabled
             />
             <Text size="xsmall" className="text-ui-fg-muted mt-1">
               Se usará en las URLs: /store/{formData.slug}
@@ -333,25 +301,9 @@ const EditBrandPage = () => {
             <Switch
               id="active"
               checked={formData.active}
-              onCheckedChange={(checked) =>
-                setFormData((prev) => ({ ...prev, active: checked }))
-              }
+              disabled
             />
           </div>
-        </div>
-
-        {/* Danger Zone */}
-        <div className="bg-ui-bg-base rounded-lg border border-ui-tag-red-border p-6">
-          <Heading level="h2" className="text-ui-fg-error mb-2">
-            Zona de peligro
-          </Heading>
-          <Text size="small" className="text-ui-fg-muted mb-4">
-            Eliminar esta marca eliminará permanentemente todos sus datos asociados.
-          </Text>
-          <Button variant="danger" type="button" onClick={handleDelete}>
-            <Trash className="mr-2" />
-            Eliminar marca
-          </Button>
         </div>
 
         {/* Actions */}
