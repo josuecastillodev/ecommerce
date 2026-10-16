@@ -420,3 +420,46 @@ export function validateCartCreateBrand() {
     }
   }
 }
+
+/**
+ * Todo producto creado desde el admin debe nacer con marca: POST /admin/products
+ * exige `additional_data.brand_id` (el hook `productsCreated` liga marca + canal).
+ * Medusa envuelve el `additionalDataValidator` en `.nullish()`, así que la
+ * obligatoriedad se valida aquí.
+ *
+ * Cablear en POST /admin/products.
+ */
+export function requireProductBrand() {
+  return (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
+    const brandId = (req.body as any)?.additional_data?.brand_id
+    if (typeof brandId === "string" && brandId.length > 0) {
+      return next()
+    }
+    return res.status(400).json({
+      type: "invalid_data",
+      message: "Todo producto debe tener marca: envía additional_data.brand_id.",
+    })
+  }
+}
+
+/**
+ * Batch create e importación CSV no pueden llevar marca por producto, así que
+ * crearían productos sin marca (invisibles para todo storefront). Se rechazan;
+ * el batch sigue permitido para `update`/`delete`.
+ *
+ * Cablear en POST /admin/products/batch (`{ batch: true }`), /admin/products/import
+ * y /imports.
+ */
+export function rejectUnbrandedProductCreate({ batch = false } = {}) {
+  return (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
+    const creates = (req.body as any)?.create
+    if (batch && !(Array.isArray(creates) && creates.length > 0)) {
+      return next()
+    }
+    return res.status(400).json({
+      type: "invalid_data",
+      message:
+        "La creación masiva/importación de productos no asigna marca. Crea cada producto con POST /admin/products y additional_data.brand_id.",
+    })
+  }
+}
