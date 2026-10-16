@@ -1,6 +1,7 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
+import { requireControlPlaneToken } from "../utils/control-plane-auth"
 import { validateCustomerBrand, validateCartLineItemBrand, validateCartCreateBrand } from "../utils/brand-middleware"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
@@ -335,6 +336,14 @@ export default defineMiddlewares({
       matcher: "/store/carts/:id/complete",
       method: "POST",
       middlewares: [validateCartLineItemBrand()],
+    },
+    // ==================
+    // Internal (control plane) — Bearer CONTROL_PLANE_TOKEN
+    // ==================
+    {
+      matcher: "/internal/tenant/apply",
+      method: "POST",
+      middlewares: [requireControlPlaneToken()],
     },
   ],
 })
