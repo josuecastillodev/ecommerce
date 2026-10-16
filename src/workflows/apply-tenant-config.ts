@@ -9,8 +9,9 @@ import {
   transform,
   WorkflowResponse,
 } from "@medusajs/framework/workflows-sdk"
-import type { TenantConfig } from "../tenant/config-schema"
+import type { TenantBrandConfig, TenantConfig } from "../tenant/config-schema"
 import { applyInitialDefaults } from "../tenant/initial-defaults"
+import { syncBrands, undoCreatedBrands } from "../tenant/sync-brands"
 
 export type BrandApplyResult = {
   slug: string
@@ -31,13 +32,27 @@ const applyInitialDefaultsStep = createStep(
   }
 )
 
+const syncBrandsStep = createStep(
+  "sync-tenant-brands",
+  async (brands: TenantBrandConfig[], { container }) => {
+    const { results, created } = await syncBrands(container, brands)
+    return new StepResponse(results, created)
+  },
+  async (created, { container }) => {
+    if (!created) return
+    await undoCreatedBrands(container, created)
+  }
+)
+
 export const applyTenantConfigWorkflow = createWorkflow(
   "apply-tenant-config",
   (input: TenantConfig) => {
+    // Orden secuencial: las marcas se ligan al almacén creado en el paso 1.
     const initial = applyInitialDefaultsStep(input)
-    const result = transform({ initial }, (d): TenantApplyResult => ({
+    const brands = syncBrandsStep(input.brands)
+    const result = transform({ initial, brands }, (d): TenantApplyResult => ({
       bootstrapped: d.initial.bootstrapped,
-      brands: [],
+      brands: d.brands,
     }))
     return new WorkflowResponse(result)
   }
