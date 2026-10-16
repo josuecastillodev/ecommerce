@@ -1,6 +1,7 @@
 import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery } from "@medusajs/framework/http"
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
+import { requireControlPlaneToken } from "../utils/control-plane-auth"
 import {
   validateCustomerBrand,
   validateCartLineItemBrand,
@@ -14,19 +15,17 @@ import {
 // fields, so a minimal list config is all that's needed to avoid the crash.
 const LIST_QUERY_CONFIG = { isList: true } as const
 
-// Brand validation schemas
-const createBrandSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9-]+$/, "Slug must be lowercase with hyphens only"),
-  logo_url: z.string().url().optional().nullable(),
-  primary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
-  secondary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
-  description: z.string().optional().nullable(),
-  active: z.boolean().optional(),
-  metadata: z.record(z.string(), z.unknown()).optional().nullable(),
-})
-
-const updateBrandSchema = createBrandSchema.partial()
+// Brand validation schemas. Estructura de marca (nombre, slug, activa) la
+// manda el control plane vía /internal/tenant/apply; en el admin solo se
+// edita la apariencia (spec 2026-10-16).
+const updateBrandAppearanceSchema = z
+  .object({
+    logo_url: z.string().url().optional().nullable(),
+    primary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
+    secondary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
+    description: z.string().optional().nullable(),
+  })
+  .strict()
 
 const listBrandsQuerySchema = z.object({
   offset: z.coerce.number().optional(),
@@ -148,13 +147,6 @@ export default defineMiddlewares({
     // ==================
     {
       matcher: "/admin/brands",
-      method: "POST",
-      middlewares: [
-        validateAndTransformBody(createBrandSchema),
-      ],
-    },
-    {
-      matcher: "/admin/brands",
       method: "GET",
       middlewares: [
         validateAndTransformQuery(listBrandsQuerySchema, LIST_QUERY_CONFIG),
@@ -164,7 +156,7 @@ export default defineMiddlewares({
       matcher: "/admin/brands/:id",
       method: "POST",
       middlewares: [
-        validateAndTransformBody(updateBrandSchema),
+        validateAndTransformBody(updateBrandAppearanceSchema),
       ],
     },
 
@@ -366,6 +358,14 @@ export default defineMiddlewares({
       matcher: "/store/carts/:id/complete",
       method: "POST",
       middlewares: [validateCartLineItemBrand()],
+    },
+    // ==================
+    // Internal (control plane) — Bearer CONTROL_PLANE_TOKEN
+    // ==================
+    {
+      matcher: "/internal/tenant/apply",
+      method: "POST",
+      middlewares: [requireControlPlaneToken()],
     },
   ],
 })

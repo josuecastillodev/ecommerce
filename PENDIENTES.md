@@ -10,6 +10,7 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 
 | Área | Commit(s) | Detalle |
 |---|---|---|
+| **Medusa provisionable por tenant** | rama `feat/tenant-provisionable` | `applyTenantConfigWorkflow`: valores `initial` (región, impuestos, almacén, envíos) se aplican una sola vez (marcador `tenant_bootstrapped_at` en `store.metadata`) y las marcas se sincronizan en cada apply (marca + sales channel + publishable key; las que salen de la config se desactivan, nunca se borran; si falla la sync se revierte lo creado). Entradas: `POST /internal/tenant/apply` (Bearer `CONTROL_PLANE_TOKEN`; sin token en env → 404) y CLI `tenant:apply`, con lock Redis `tenant-apply` (409 si está tomado). En el admin las marcas son de solo lectura salvo su apariencia (logo, colores, descripción). `seed-demo.ts` corre como un tenant más sobre `tenants/demo.json`; el probe ya no lleva nombres a mano. Verificado: **T2/T3** `verify-tenant-apply` escenarios 1, 2, 5, 3, 4 pasan en DB scratch, probe pasa, y un fallo forzado a mitad de la sync revierte marcas/canales/keys creados; **T4** curl: sin token o token malo 401, body inválido 400, OK 200, concurrente 200+409, sin `CONTROL_PLANE_TOKEN` 404, lock liberado tras un apply que falla; **T5** admin de marcas: crear 403, borrar 403, editar nombre/estado 400, editar colores 200; **T6** seed en scratch dos veces (`bootstrapped` true y luego false), probe pasa; seed sobre la DB de desarrollo → conteos `SIN CAMBIOS` (adopción), probe pasa. |
 | **Instalación / arranque** | `3124f0e` | Dependencias alineadas a Medusa **2.20.1** (el `package.json` tenía versiones inexistentes y nunca se había instalado). `@medusajs/medusa-cli` → `@medusajs/cli`; `@mikro-orm/*` fijado a `6.6.14`; agregados `ts-node`, `tsconfig-paths`, `cloudinary`. `.npmrc` con `node-linker=hoisted` (requerido por Medusa + pnpm). `tsconfig.json` con `ts-node.swc` y `jsx`. |
 | **Middlewares** | `4821cd8` | Resuelto el conflicto entre `src/api/middlewares.ts` y `src/api/middlewares/`. La lógica de validación de marca vive en `src/utils/brand-middleware.ts`. |
 | **Migraciones** | `b6acfd2` | Generadas y aplicadas para los módulos `brand`, `category`, `customer-brand`. |
@@ -103,6 +104,13 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   en Medusa v2 es el estado activo normal (cuenta todo pedido no completado).
   Revisar contra `fulfillment_status`/`payment_status` cuando haya pedidos
   sembrados.
+
+### 3. Tenancy (sub-proyectos 2-4)
+
+- Control plane (app nueva) + admin de tenants; mostrar `initial` como "solo al crear el tenant".
+- Provisioner: crear DB, `db:migrate`, contenedor, Traefik, `medusa user`, `CONTROL_PLANE_TOKEN` por tenant, llamada a `apply`.
+- Operación de la flota: migraciones en todos los tenants, suspender/borrar.
+- Clientes compartidos entre marcas de un tenant (`customer_brand` N:M).
 
 ---
 

@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "store": { "name": "Tienda Multi-Marca" },
+  "brands": [
+    {
+      "slug": "urban-street",
+      "name": "Urban Street",
+      "active": true,
+      "description": "Streetwear urbano para jóvenes audaces",
+      "logo_url": null,
+      "primary_color": "#1A1A1A",
+      "secondary_color": "#FF4444"
+    },
+    {
+      "slug": "classic-threads",
+      "name": "Classic Threads",
+      "active": true,
+      "description": "Moda clásica y atemporal para toda ocasión",
+      "logo_url": null,
+      "primary_color": "#2C3E50",
+      "secondary_color": "#ECF0F1"
+    }
+  ],
+  "initial": {
+    "currency": "mxn",
+    "region": {
+      "name": "México",
+      "countries": ["mx"],
+      "payment_providers": ["pp_system_default", "pp_stripe_stripe", "pp_stripe-oxxo_stripe"]
+    },
+    "stock_location": {
+      "name": "Almacén CDMX",
+      "address": {
+        "address_1": "Av. Paseo de la Reforma 1",
+        "city": "Ciudad de México",
+        "country_code": "mx",
+        "postal_code": "06600"
+      }
+    },
+    "shipping_options": [
+      { "name": "Envío Estándar", "code": "standard", "label": "Estándar", "description": "Entrega en 3-5 días hábiles", "amount": 99 },
+      { "name": "Envío Exprés", "code": "express", "label": "Exprés", "description": "Entrega en 1-2 días hábiles", "amount": 199 }
+    ]
+  }
+}

@@ -92,5 +92,21 @@ export default defineConfig({
         },
       },
     },
+    // Locking module - Redis (tenant apply: excluye server y CLI a la vez)
+    {
+      resolve: "@medusajs/medusa/locking",
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/medusa/locking-redis",
+            id: "locking-redis",
+            is_default: true,
+            options: {
+              redisUrl: process.env.REDIS_URL,
+            },
+          },
+        ],
+      },
+    },
   ],
 })

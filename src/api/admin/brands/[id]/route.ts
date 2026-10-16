@@ -17,47 +17,27 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   res.json({ brand })
 }
 
-// POST /admin/brands/:id - Update a brand
+// Solo apariencia; nombre, slug y estado los manda el control plane.
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
   const { id } = req.params
-
-  const { name, slug, logo_url, primary_color, secondary_color, description, active, metadata } = req.body as {
-    name?: string
-    slug?: string
-    logo_url?: string
+  const body = req.validatedBody as {
+    logo_url?: string | null
     primary_color?: string
     secondary_color?: string
-    description?: string
-    active?: boolean
-    metadata?: Record<string, unknown>
+    description?: string | null
   }
 
-  const brand = await brandService.updateBrands({
-    id,
-    name,
-    slug,
-    logo_url,
-    primary_color,
-    secondary_color,
-    description,
-    active,
-    metadata,
-  })
+  // El ORM rechaza propiedades undefined: solo se pasan las enviadas.
+  const brand = await brandService.updateBrands({ id, ...body })
 
   res.json({ brand })
 }
 
-// DELETE /admin/brands/:id - Delete a brand
-export async function DELETE(req: MedusaRequest, res: MedusaResponse) {
-  const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
-  const { id } = req.params
-
-  await brandService.deleteBrands(id)
-
-  res.status(200).json({
-    id,
-    object: "brand",
-    deleted: true,
+// Las marcas nunca se borran: se desactivan desde el control plane.
+export async function DELETE(_req: MedusaRequest, res: MedusaResponse) {
+  res.status(403).json({
+    type: "not_allowed",
+    message: "Las marcas se desactivan desde el control plane del tenant.",
   })
 }
