@@ -1,5 +1,6 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { BRAND_MODULE } from "../modules/brand"
 
 export default async function brandCreatedHandler({
   event,
@@ -16,5 +17,6 @@ export default async function brandCreatedHandler({
 }
 
 export const config: SubscriberConfig = {
-  event: "brand.created",
+  // Custom modules prefix events with their service name, not just the model
+  event: `${BRAND_MODULE}.brand.created`,
 }
