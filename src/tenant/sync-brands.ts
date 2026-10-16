@@ -50,11 +50,25 @@ export async function syncBrands(
   container: MedusaContainer,
   brands: TenantBrandConfig[]
 ): Promise<{ results: BrandApplyResult[]; created: CreatedBrandResources }> {
+  const created: CreatedBrandResources = { brandIds: [], channelIds: [], keyIds: [] }
+  try {
+    return await syncBrandsInner(container, brands, created)
+  } catch (e) {
+    // Si el step lanza, Medusa no recibe `created`; deshacer aquí lo ya creado.
+    await undoCreatedBrands(container, created)
+    throw e
+  }
+}
+
+async function syncBrandsInner(
+  container: MedusaContainer,
+  brands: TenantBrandConfig[],
+  created: CreatedBrandResources
+): Promise<{ results: BrandApplyResult[]; created: CreatedBrandResources }> {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const link = container.resolve(ContainerRegistrationKeys.LINK)
   const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
   const stockLocationModule = container.resolve(Modules.STOCK_LOCATION)
-  const created: CreatedBrandResources = { brandIds: [], channelIds: [], keyIds: [] }
 
   const { data: existingRows } = await query.graph({
     entity: "brand",
