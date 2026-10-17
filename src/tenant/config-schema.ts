@@ -1,7 +1,8 @@
 /**
  * Config de un tenant que empuja el control plane (spec 2026-10-16).
  * `brands` la manda el control plane en cada apply; `initial` solo se usa en
- * el primer apply (ver initial-defaults.ts).
+ * el primer apply (ver initial-defaults.ts). Una sola marca lleva `default: true`
+ * (spec 2026-10-17).
  */
 import { z } from "zod"
 
@@ -11,6 +12,8 @@ const brandSchema = z.object({
   slug: z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Slug en kebab-case"),
   name: z.string().min(1),
   active: z.boolean().default(true),
+  // Marca default: vive en el canal de store.default_sales_channel_id.
+  default: z.boolean().default(false),
   // Apariencia: solo se usa al crear la marca; después la edita el cliente.
   description: z.string().nullable().default(null),
   logo_url: z.string().url().nullable().default(null),
@@ -34,6 +37,14 @@ export const TenantConfigSchema = z.object({
     .refine(
       (brands) => new Set(brands.map((b) => b.slug)).size === brands.length,
       "Los slugs de marca deben ser únicos"
+    )
+    .refine(
+      (brands) => brands.filter((b) => b.default).length === 1,
+      "Debe haber exactamente una marca con default: true"
+    )
+    .refine(
+      (brands) => brands.every((b) => !b.default || b.active),
+      "La marca default no se puede desactivar"
     ),
   initial: z.object({
     currency: z.string().length(3).toLowerCase(),

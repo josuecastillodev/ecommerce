@@ -1,7 +1,7 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { CUSTOMER_BRAND_MODULE } from "../../../../../modules/customer-brand"
-import { BRAND_MODULE } from "../../../../../modules/brand"
-import type BrandModuleService from "../../../../../modules/brand/service"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { BRAND_CHANNEL_FIELDS, brandFromChannel, type BrandChannel } from "../../../../../brand/channel-brand"
 import type CustomerBrandModuleService from "../../../../../modules/customer-brand/service"
 
 /**
@@ -17,7 +17,6 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse):
   }
 
   const customerBrandService: CustomerBrandModuleService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
-  const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
 
   const customerBrand = await customerBrandService.findByCustomerId(customerId)
 
@@ -28,12 +27,18 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse):
     return
   }
 
-  const [brand] = await brandService.listBrands({ id: customerBrand.brand_id })
+  const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+  const { data: channels } = await query.graph({
+    entity: "sales_channel",
+    fields: BRAND_CHANNEL_FIELDS,
+    filters: { id: customerBrand.sales_channel_id },
+  })
+  const brand = channels[0] ? brandFromChannel(channels[0] as unknown as BrandChannel) : null
 
   res.json({
     brand: brand
       ? {
-          id: brand.id,
+          sales_channel_id: brand.sales_channel_id,
           name: brand.name,
           slug: brand.slug,
           logo_url: brand.logo_url,

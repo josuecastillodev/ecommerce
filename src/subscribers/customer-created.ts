@@ -1,16 +1,15 @@
 import type { SubscriberArgs, SubscriberConfig } from "@medusajs/framework"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
-import { BRAND_MODULE } from "../modules/brand"
-import type BrandModuleService from "../modules/brand/service"
 import type CustomerBrandModuleService from "../modules/customer-brand/service"
+import { BRAND_CHANNEL_FIELDS, brandFromChannel, type BrandChannel } from "../brand/channel-brand"
 
 /**
- * Associates a newly registered customer with a brand.
+ * Asocia al cliente recién registrado con su marca (sales channel).
  *
- * The storefront passes the brand in the customer's `metadata.brand_id` when
- * calling `POST /store/customers`. Registration and password handling stay in
- * Medusa's native flow; this only creates the brand association on top.
+ * El storefront manda el canal en `metadata.sales_channel_id` al llamar
+ * `POST /store/customers`. El registro y la contraseña siguen en el flujo
+ * nativo de Medusa; esto solo crea la asociación encima.
  */
 export default async function customerCreatedHandler({
   event,
@@ -19,7 +18,6 @@ export default async function customerCreatedHandler({
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const customerBrandService: CustomerBrandModuleService = container.resolve(CUSTOMER_BRAND_MODULE)
-  const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
 
   const customerId = event.data.id
 
@@ -29,40 +27,41 @@ export default async function customerCreatedHandler({
     filters: { id: customerId },
   })
 
-  const customer = customers[0]
-  const metadata = (customer?.metadata ?? {}) as Record<string, unknown>
-  const brandId = metadata.brand_id as string | undefined
+  const metadata = (customers[0]?.metadata ?? {}) as Record<string, unknown>
+  const salesChannelId = metadata.sales_channel_id as string | undefined
 
-  if (!brandId) {
+  if (!salesChannelId) {
     logger.warn(
-      `Customer ${customerId} was created without metadata.brand_id; no brand association made.`
+      `Customer ${customerId} was created without metadata.sales_channel_id; no brand association made.`
     )
     return
   }
 
-  const existing = await customerBrandService.findByCustomerId(customerId)
-  if (existing) {
+  if (await customerBrandService.findByCustomerId(customerId)) {
     return
   }
 
-  const [brand] = await brandService.listBrands({ id: brandId })
+  const { data: channels } = await query.graph({
+    entity: "sales_channel",
+    fields: BRAND_CHANNEL_FIELDS,
+    filters: { id: salesChannelId },
+  })
+  const brand = channels[0] ? brandFromChannel(channels[0] as unknown as BrandChannel) : null
   if (!brand || !brand.active) {
     logger.warn(
-      `Customer ${customerId} references brand ${brandId} which does not exist or is inactive; no brand association made.`
+      `Customer ${customerId} references sales channel ${salesChannelId}, which is not an active brand; no brand association made.`
     )
     return
   }
 
-  await customerBrandService.associateCustomerWithBrand(customerId, brandId, {
+  await customerBrandService.associateCustomerWithChannel(customerId, salesChannelId, {
     registered_from: "storefront",
     marketing_consent: metadata.marketing_consent === true,
     language_preference:
-      typeof metadata.language_preference === "string"
-        ? metadata.language_preference
-        : "es",
+      typeof metadata.language_preference === "string" ? metadata.language_preference : "es",
   })
 
-  logger.info(`Customer ${customerId} associated with brand ${brandId}.`)
+  logger.info(`Customer ${customerId} associated with brand ${brand.slug} (${salesChannelId}).`)
 }
 
 export const config: SubscriberConfig = {

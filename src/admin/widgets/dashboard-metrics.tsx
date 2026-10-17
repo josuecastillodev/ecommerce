@@ -6,7 +6,6 @@
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { Container, Heading, Text, Badge, clx } from "@medusajs/ui"
 import { useState, useEffect } from "react"
-import { useBrands } from "../hooks/use-brand"
 import { fetchDashboardMetrics } from "../lib/api"
 import type { DashboardMetrics } from "../lib/types"
 
@@ -50,7 +49,6 @@ const formatCurrency = (amount: number, currency = "MXN") => {
 }
 
 const DashboardMetricsWidget = () => {
-  const { brands, selectedBrand, isLoading: brandsLoading } = useBrands()
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -60,7 +58,7 @@ const DashboardMetricsWidget = () => {
     let cancelled = false
     setIsLoading(true)
     setError(null)
-    fetchDashboardMetrics(selectedBrand?.id)
+    fetchDashboardMetrics()
       .then((m) => {
         if (!cancelled) setMetrics(m)
       })
@@ -74,9 +72,9 @@ const DashboardMetricsWidget = () => {
     return () => {
       cancelled = true
     }
-  }, [selectedBrand, retryKey])
+  }, [retryKey])
 
-  if (brandsLoading || isLoading) {
+  if (isLoading) {
     return (
       <Container className="p-6">
         <Text className="text-ui-fg-muted">Cargando métricas...</Text>
@@ -112,13 +110,9 @@ const DashboardMetricsWidget = () => {
     <Container className="p-6">
       <div className="mb-6">
         <Heading level="h1" className="mb-2">
-          Dashboard {selectedBrand ? `- ${selectedBrand.name}` : ""}
+          Dashboard
         </Heading>
-        <Text className="text-ui-fg-muted">
-          {selectedBrand
-            ? `Métricas de ${selectedBrand.name}`
-            : "Métricas globales de todas las marcas"}
-        </Text>
+        <Text className="text-ui-fg-muted">Métricas de todas las marcas</Text>
       </div>
 
       {/* Summary Cards */}
@@ -150,23 +144,22 @@ const DashboardMetricsWidget = () => {
       </div>
 
       {/* Per-Brand Breakdown (only if viewing all brands) */}
-      {!selectedBrand && metrics.by_brand.length > 1 && (
+      {metrics.by_brand.length > 1 && (
         <div>
           <Heading level="h2" className="mb-4">
             Por marca
           </Heading>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {metrics.by_brand.map((brandMetrics) => {
-              const brand = brands.find((b) => b.id === brandMetrics.brand_id)
               return (
                 <div
-                  key={brandMetrics.brand_id}
+                  key={brandMetrics.sales_channel_id}
                   className="bg-ui-bg-subtle rounded-lg border border-ui-border-base p-4"
                 >
                   <div className="flex items-center gap-3 mb-4">
                     <div
                       className="w-4 h-4 rounded-full"
-                      style={{ backgroundColor: brand?.primary_color || "#888" }}
+                      style={{ backgroundColor: brandMetrics.brand_color }}
                     />
                     <Heading level="h3">{brandMetrics.brand_name}</Heading>
                   </div>

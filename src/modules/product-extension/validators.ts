@@ -40,9 +40,9 @@ const variantSchema = z.object({
 
 // Create product schema
 const createProductSchema = z.object({
-  brand_id: z
+  sales_channel_id: z
     .string()
-    .min(1, "Brand ID is required"),
+    .min(1, "Sales channel ID is required"),
   title: z
     .string()
     .min(1, "Title is required")
@@ -132,7 +132,7 @@ const updateProductSchema = z.object({
 // Add variant schema
 const addVariantSchema = z.object({
   product_id: z.string().min(1, "Product ID is required"),
-  brand_id: z.string().min(1, "Brand ID is required"),
+  sales_channel_id: z.string().min(1, "Sales channel ID is required"),
   size: z.enum(AVAILABLE_SIZES),
   color: colorSchema,
   stock: z.number().int().min(0),
@@ -148,7 +148,7 @@ const updateVariantSchema = z.object({
 
 // Query filters schema
 const productFiltersSchema = z.object({
-  brand_id: z.string().optional(),
+  sales_channel_id: z.string().optional(),
   category_id: z.string().optional(),
   status: z.enum(["draft", "published"]).optional(),
   min_price: z.number().min(0).optional(),

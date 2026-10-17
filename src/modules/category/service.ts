@@ -13,7 +13,7 @@ type CategoryData = {
   description?: string | null
   image_url?: string | null
   parent_id?: string | null
-  brand_id?: string | null
+  sales_channel_id?: string | null
   position?: number
   is_active?: boolean
   metadata?: Record<string, unknown> | null
@@ -23,13 +23,13 @@ class CategoryModuleService extends MedusaService({
   Category,
 }) {
   /**
-   * Find category by slug, optionally filtered by brand
+   * Find category by slug, optionally filtered by marca (sales channel)
    */
-  async findBySlug(slug: string, brandId?: string | null): Promise<any | null> {
+  async findBySlug(slug: string, salesChannelId?: string | null): Promise<any | null> {
     const filters: Record<string, unknown> = { slug }
 
-    if (brandId !== undefined) {
-      filters.brand_id = brandId
+    if (salesChannelId !== undefined) {
+      filters.sales_channel_id = salesChannelId
     }
 
     const [category] = await this.listCategories(filters)
@@ -39,11 +39,11 @@ class CategoryModuleService extends MedusaService({
   /**
    * Get all root categories (no parent)
    */
-  async getRootCategories(brandId?: string | null): Promise<any[]> {
+  async getRootCategories(salesChannelId?: string | null): Promise<any[]> {
     const filters: Record<string, unknown> = { parent_id: null }
 
-    if (brandId !== undefined) {
-      filters.brand_id = brandId
+    if (salesChannelId !== undefined) {
+      filters.sales_channel_id = salesChannelId
     }
 
     return this.listCategories(filters, {
@@ -64,9 +64,9 @@ class CategoryModuleService extends MedusaService({
   /**
    * Get category tree (root + children)
    */
-  async getCategoryTree(brandId?: string | null): Promise<any[]> {
+  async getCategoryTree(salesChannelId?: string | null): Promise<any[]> {
     // Get root categories
-    const rootCategories = await this.getRootCategories(brandId)
+    const rootCategories = await this.getRootCategories(salesChannelId)
 
     // For each root, get subcategories
     const tree = await Promise.all(
@@ -83,29 +83,29 @@ class CategoryModuleService extends MedusaService({
   }
 
   /**
-   * Get categories for a brand including global categories
+   * Get categories for a marca (sales channel) including global categories
    */
-  async getCategoriesForBrand(brandId: string): Promise<any[]> {
-    // Get brand-specific and global categories
-    const [brandCategories, globalCategories] = await Promise.all([
+  async getCategoriesForChannel(salesChannelId: string): Promise<any[]> {
+    // Get marca-specific and global categories
+    const [channelCategories, globalCategories] = await Promise.all([
       this.listCategories(
-        { brand_id: brandId, is_active: true },
+        { sales_channel_id: salesChannelId, is_active: true },
         { order: { position: "ASC", name: "ASC" } }
       ),
       this.listCategories(
-        { brand_id: null, is_active: true },
+        { sales_channel_id: null, is_active: true },
         { order: { position: "ASC", name: "ASC" } }
       ),
     ])
 
-    return [...globalCategories, ...brandCategories]
+    return [...globalCategories, ...channelCategories]
   }
 
   /**
-   * Get category tree for a brand (including global)
+   * Get category tree for a marca (sales channel) (including global)
    */
-  async getCategoryTreeForBrand(brandId: string): Promise<any[]> {
-    const allCategories = await this.getCategoriesForBrand(brandId)
+  async getCategoryTreeForChannel(salesChannelId: string): Promise<any[]> {
+    const allCategories = await this.getCategoriesForChannel(salesChannelId)
 
     // Build tree from flat list
     const rootCategories = allCategories.filter((c) => !c.parent_id)
@@ -153,17 +153,17 @@ class CategoryModuleService extends MedusaService({
   }
 
   /**
-   * Validate slug uniqueness within brand scope
+   * Validate slug uniqueness within marca (sales channel) scope
    */
   async validateSlugUniqueness(
     slug: string,
-    brandId: string | null,
+    salesChannelId: string | null,
     excludeId?: string
   ): Promise<{ valid: boolean; message?: string }> {
-    const existing = await this.findBySlug(slug, brandId)
+    const existing = await this.findBySlug(slug, salesChannelId)
 
     if (existing && existing.id !== excludeId) {
-      const scope = brandId ? "this brand" : "global categories"
+      const scope = salesChannelId ? "this brand's sales channel" : "global categories"
       return {
         valid: false,
         message: `Slug "${slug}" already exists in ${scope}`,
@@ -194,10 +194,10 @@ class CategoryModuleService extends MedusaService({
   /**
    * Get next position for a new category
    */
-  async getNextPosition(parentId: string | null, brandId: string | null): Promise<number> {
+  async getNextPosition(parentId: string | null, salesChannelId: string | null): Promise<number> {
     const filters: Record<string, unknown> = {
       parent_id: parentId,
-      brand_id: brandId,
+      sales_channel_id: salesChannelId,
     }
 
     const siblings = await this.listCategories(filters, {
@@ -257,7 +257,7 @@ class CategoryModuleService extends MedusaService({
 
     // Get next position in new location
     const category = await this.retrieveCategory(categoryId)
-    const position = await this.getNextPosition(newParentId, category.brand_id)
+    const position = await this.getNextPosition(newParentId, category.sales_channel_id)
 
     return this.updateCategories({
       id: categoryId,

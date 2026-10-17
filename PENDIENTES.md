@@ -16,13 +16,13 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Migraciones** | `b6acfd2` | Generadas y aplicadas para los módulos `brand`, `category`, `customer-brand`. |
 | **Pagos Stripe / OXXO** | `e7e5ee0` | Borrado el módulo custom `src/modules/stripe-payment/` (roto contra la interfaz 2.20). Se usa el provider oficial `@medusajs/payment-stripe`, que registra `stripe` (tarjetas) y `stripe-oxxo` (OXXO Pay) nativos. Webhook y verificación de firma los maneja Medusa (`/hooks/payment/*`). Subscribers reescritos: `payment-captured.ts`, `payment-refunded.ts`. |
 | **Auth de clientes** | `6a5a92e` | Borrado todo el `/store/auth` y `/store/customers` custom (~1600 líneas: token base64 sin firmar, password en texto plano, `me`/`addresses`/`orders` reimplementados a mano). Se usa el auth nativo de Medusa. La capa multi-marca quedó aislada en: subscriber `customer-created.ts` (crea el `customer_brand` desde `customer.metadata.brand_id`), middleware `validateCustomerBrand()` sobre `/store/customers/me*` y `/store/orders*` (403 si el `X-Brand-Id` no coincide), y el router `GET/POST /store/customers/me/brand`. |
-| **Seed / datos de prueba** | `d7d9193`, `49ed743`, `a3774c7` | `seed.ts` ahora siembra los fundamentos de comercio (ver abajo) + 2 clientes de prueba. Bugs pre-existentes arreglados de paso (workflow de producto y `validateAndTransformQuery`). |
+| **Seed / datos de prueba** | `d7d9193`, `49ed743`, `a3774c7` | `seed-demo.ts` ahora siembra los fundamentos de comercio (ver abajo) + 2 clientes de prueba. Bugs pre-existentes arreglados de paso (workflow de producto y `validateAndTransformQuery`). |
 | **Bugs de rutas admin de producto** | PR #4 (`fix/admin-product-routes-bugs`) | `add-variant-to-product.ts` no funcionaba: `runAsStep()` devuelve el valor directo (no `{ result }`) + el input debía ser `{ product_variants: [...] }`. `products/[id]/route.ts` tenía claves duplicadas en el update de categorías (`remoteLink` con `[Modules.PRODUCT]` repetido) → reemplazado por `category_ids` nativo en `updateProductsWorkflow`. Casts de `req.body`. |
 | **Versión de `zod`** | PR #5 (`fix/zod-version-alignment`) | Medusa 2.20.1 usa `zod@4.2.0` internamente (`@medusajs/deps/zod`), no 3.x. Se subió `zod` a `4.2.0` exacto y se migraron los validadores a la API v4 (`z.record` con key schema, `errorMap`→`error`, `.error.issues`, `z.ZodType`). |
 | **Admin dashboard — tipado (#1a)** | PR #6 (`fix/admin-react-types`) | Faltaban `@types/react`/`@types/react-dom` y `lib: ["DOM"]` en `tsconfig.json` (~350 de los ~360 errores). 3 widgets usaban injection zones inexistentes en 2.20 (`home.before/after`, `nav.top.before`) → movidos a `product.list.*` como stopgap. |
 | **Admin dashboard — pantallas y datos reales (#1b)** | PR #7 (`fix/admin-screens-verify`) | Verificado en navegador y arreglado: la API custom de producto tapaba las pantallas **nativas** de Productos (`GET /admin/products` con middleware estricto → 400 en los params que el admin nativo siempre manda) — movida a `/admin/brand-products*`. La pantalla "Productos por Marca" leía campos que la API no devuelve (`brand_id`, `base_price`, `variants_count`) → `brand`, `price_range`, `variant_count`. `total_stock` pasó de estar siempre en 0 a calcularse real desde `location_levels`. Nuevo endpoint `GET /admin/dashboard/metrics` con agregación real. Bug del filtro de marca por link (`{ brand: { brand_id } }` en vez de `{ brand: { id } }`) corregido en 3 rutas. Widgets `dashboard-metrics` y `low-stock-alert` dejaron de usar mock (`Math.random()` / arrays hardcodeados). |
-| **Convención de precios (centavos → decimal)** | — | Medusa 2.x guarda `amount` en **decimal** (unidad mayor: pesos, no centavos) — confirmado contra `@medusajs/dashboard` (`money-amount-helpers.ts` y el `data-grid-currency-cell`, que formatean/editan `amount` tal cual, sin dividir por 100). El seed y dos vistas del admin custom asumían centavos y quedó mezclado: `seed.ts` sembraba `base_price: 45000` / envíos en `9900`-`19900`, mientras `brand-products/page.tsx` y `dashboard-metrics.tsx` dividían `amount / 100` al mostrarlo (compensando, pero solo en las pantallas custom — el admin nativo de Medusa habría mostrado $45,000.00 en vez de $450.00). Corregido: `seed.ts` ahora siembra en decimal (`base_price: 450`, envíos `99`/`199`) y las dos vistas custom dejaron de dividir entre 100. |
-| **Checkout end-to-end — cart → shipping → payment → orden** | — | Probado con curl contra el provider manual (`pp_system_default`); dos bugs bloqueaban **cualquier** checkout, sin importar el método de pago: (1) `seed.ts` creaba la tax region de MX sin `provider_id` → 500 "Unable to retrieve the tax provider with id: null" al primer line item (Medusa solo asigna `tp_system` por default a regiones que ya existían al momento de migrar, no a las que crea el seed después). Corregido pasando `provider_id: "tp_system"` explícito. (2) `createProductWithBrandWorkflow` nunca seteaba `shipping_profile_id` al crear productos → `product_shipping_profile` quedaba vacío → 400 "cart items require shipping profiles that are not satisfied by the current shipping methods" al completar el cart, para **todo** producto creado por el seed o por el admin. Corregido: el workflow ahora resuelve el shipping profile default (`resolveShippingProfileStep`) y lo linkea. Con ambos fixes, el flujo completo (cart → line item → dirección → shipping method → payment collection → payment session `pp_system_default` → complete) genera la orden correctamente, con totales en decimal ($999 = $900 producto + $99 envío). |
+| **Convención de precios (centavos → decimal)** | — | Medusa 2.x guarda `amount` en **decimal** (unidad mayor: pesos, no centavos) — confirmado contra `@medusajs/dashboard` (`money-amount-helpers.ts` y el `data-grid-currency-cell`, que formatean/editan `amount` tal cual, sin dividir por 100). El seed y dos vistas del admin custom asumían centavos y quedó mezclado: `seed-demo.ts` sembraba `base_price: 45000` / envíos en `9900`-`19900`, mientras `brand-products/page.tsx` y `dashboard-metrics.tsx` dividían `amount / 100` al mostrarlo (compensando, pero solo en las pantallas custom — el admin nativo de Medusa habría mostrado $45,000.00 en vez de $450.00). Corregido: `seed.ts` ahora siembra en decimal (`base_price: 450`, envíos `99`/`199`) y las dos vistas custom dejaron de dividir entre 100. |
+| **Checkout end-to-end — cart → shipping → payment → orden** | — | Probado con curl contra el provider manual (`pp_system_default`); dos bugs bloqueaban **cualquier** checkout, sin importar el método de pago: (1) `seed-demo.ts` creaba la tax region de MX sin `provider_id` → 500 "Unable to retrieve the tax provider with id: null" al primer line item (Medusa solo asigna `tp_system` por default a regiones que ya existían al momento de migrar, no a las que crea el seed después). Corregido pasando `provider_id: "tp_system"` explícito. (2) `createProductWithBrandWorkflow` nunca seteaba `shipping_profile_id` al crear productos → `product_shipping_profile` quedaba vacío → 400 "cart items require shipping profiles that are not satisfied by the current shipping methods" al completar el cart, para **todo** producto creado por el seed o por el admin. Corregido: el workflow ahora resuelve el shipping profile default (`resolveShippingProfileStep`) y lo linkea. Con ambos fixes, el flujo completo (cart → line item → dirección → shipping method → payment collection → payment session `pp_system_default` → complete) genera la orden correctamente, con totales en decimal ($999 = $900 producto + $99 envío). |
 | **Checkout con Stripe (tarjetas) — verificado con llaves de test reales** | — | Con `STRIPE_API_KEY`/`STRIPE_PUBLISHABLE_KEY` de test puestas en `.env`: `pp_stripe_stripe` crea un `PaymentIntent` real en modo test; confirmado directo contra la API de Stripe con una tarjeta de prueba (`tok_visa`) → `succeeded`. Al completar el cart, Medusa reconoce el pago (orden con `paid_total` = `accounting_total`, `pending_difference: 0`) y el `payment` queda `captured_at` con su `capture` registrado en DB por el monto correcto. Flujo de tarjeta completo, sin necesitar webhook (la captura ocurre síncrona al completar el cart). |
 | **Checkout con OXXO — confirmación async por webhook, verificada con ngrok** | — | Túnel `ngrok http 9000` + webhook endpoint real creado en Stripe (API) apuntando a `/hooks/payment/<provider>_stripe`. Encontrado un bug de configuración (no de código): el webhook nativo de Medusa (`payment-webhook.ts`) resuelve el provider como `pp_${eventData.provider}`, tomando el segmento de la URL literal — con `@medusajs/payment-stripe` (que registra **múltiples** sub-providers desde un solo `id: "stripe"` en `medusa-config.ts`: `pp_stripe_stripe` para tarjetas, `pp_stripe-oxxo_stripe` para OXXO) la URL correcta **no** es `/hooks/payment/stripe` sino `/hooks/payment/stripe-oxxo_stripe` (OXXO) o `/hooks/payment/stripe_stripe` (tarjetas) — apuntar a `/hooks/payment/stripe` a secas siempre falla con `AwilixResolutionError: Could not resolve 'pp_stripe'`. Corregida la URL del webhook, el flujo completo funcionó dos veces seguidas de punta a punta sin intervención manual: cart → OXXO payment session → confirmar con `payment_method` tipo `oxxo` en Stripe → voucher generado → Stripe simula el pago en modo test (~2 min) → webhook `payment_intent.succeeded` llega vía ngrok → Medusa captura el pago → `POST .../complete` genera la orden (`paid_total` = `accounting_total`, `pending_difference: 0`). Observación menor: el *primer* intento de procesar cada webhook entrante falló (silenciosamente recuperado por el retry nativo de Medusa, `attempts: 3` en la config del webhook), y solo el reintento tuvo éxito — las 2 veces que se probó. No bloquea nada (Medusa ya reintenta automáticamente) pero vale la pena monitorear en producción si nunca se recupera tras 3 intentos. |
 | **Stock duplicado y en `0` en detalle/variantes** | `9897572` | `brand-products/[id]/route.ts` y `.../[id]/variants/route.ts` leían `variants.inventory_quantity` (campo que `query.graph` no popula en esta versión) → siempre reportaban stock `0`, mientras la lista sí calculaba bien desde `location_levels` (con la lógica copiada y pegada). Extraído un helper compartido `calculateVariantStock`/`calculateTotalStock` + `VARIANT_STOCK_FIELDS` en `src/modules/product-extension/stock.ts`, usado ahora en las 4 rutas que necesitan stock (lista, detalle, variantes, y el endpoint de métricas del dashboard, que tenía la misma lógica duplicada una tercera vez). Verificado: lista, detalle y variantes devuelven el mismo `total_stock` para el mismo producto. |
@@ -34,19 +34,14 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Admin — tipo `BrandProduct` compartido y docstrings** | — | Nuevo `BrandProduct` / `BrandProductVariant` / `BrandProductListResponse` en `src/admin/lib/types.ts` (contrato de `GET /admin/brand-products`: campos de `query.graph` que lee la UI + los calculados `price_range`, `total_stock`, `variant_count`, `in_stock`). `fetchProducts` y `fetchLowStockProducts` en `src/admin/lib/api.ts` devuelven `Promise<BrandProductListResponse>` en vez de `any`; `brand-products/page.tsx` y `low-stock-alert.tsx` dejaron sus `(p: any)` y el `Product` local de la página pasa a ser `BrandProduct & { brand_name; brand_color }` (se quitó el fallback a `p.brand_id`, campo que la API nunca devuelve). Docstrings de `src/api/admin/brand-products/*.ts` corregidos de `/admin/products` a `/admin/brand-products`. `tsc --noEmit` → 0, `medusa build` → 0 errores. |
 | **Tenencia — `/store/categories` y `X-Brand-Id` derivado** | — | Nuevo helper `resolveCallerBrand(req)` en `brand-middleware.ts` (extraído del patrón ya usado en `/store/brands/:slug/products` y `/store/categories/:slug/products`, que ahora lo reusan): resuelve la marca del caller desde `sales_channel` de la publishable key. `/store/categories` (lista) lo adopta — ya no confía en el `brand_id` del query string, sin key válida → 400, mismo soporte de `tree`/`include_global` que antes. Nuevo `resolveRequestBrandId(req)`: intenta primero la marca de la pub key y, si no resuelve, cae a `extractBrandId` (header/query/body); usado por `validateCustomerBrand`, que ya no exige el header `X-Brand-Id` cuando la publishable key alcanza para derivar la marca (la pub key gana sobre un header enviado a mano — más difícil de falsificar). Verificado con curl: `/store/categories` con `PK_URBAN`/`PK_CLASSIC` → cada uno solo ve su marca + globales (8/9 categorías, incluye los 6 globales compartidos); `brand_id` falso en el query → ignorado; sin key → 400; `/store/customers/me` autenticado con `PK_URBAN` y **sin** header → 200; con `PK_CLASSIC` (marca ajena) sin header → 403; con `PK_URBAN` + `X-Brand-Id` falso → 200 (el header se ignora). Regresión en `/store/brands/:slug/products` y `/store/categories/:slug/products` sin cambios. `pnpm run build` → 0 errores. |
 | **Carrito y marca — cierre de fugas** | — | Dos huecos del guard de carrito cerrados. (1) `validateCartLineItemBrand` ya no hace `next()` a ciegas cuando el carrito no tiene `sales_channel_id`: sin canal resuelto exige que todas las variantes (entrante + items existentes) compartan `product.brand.id`; si abarcan >1 marca → `403`. (2) Nuevo middleware `validateCartCreateBrand`, cableado en `POST /store/carts`, valida los `items[]` inline antes de crear el carrito — canal objetivo = `body.sales_channel_id` o el de la publishable key; mezcla de marcas → `403`. Helper compartido `resolveVariantBrandInfo` + `checkVariantsAgainstChannel` (fail-closed si el lookup de variantes queda corto). Verificado con curl: `POST /store/carts` con items mixtos → 403, una marca → 200, sin items → 200; regresión de `/line-items` y `/complete` + checkout de una marca → orden, sin cambios; carrito con canal nulo + item de otra marca → 403. `pnpm run build` → 0 errores. |
-| **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
-
+| **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed-demo.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
+| **Marca = sales channel nativo** | — | El módulo `brand` y sus links se eliminaron; cada sales channel es una marca (`metadata.brand_*`); el canal default del store es la marca default (`default: true` en la config); todo producto en exactamente un canal (hooks nativos `productsCreated`/`productsUpdated` + guarda de `/admin/sales-channels/:id/products`); el formulario nativo de crear producto vuelve a funcionar; `/store/brands*` → `GET /store/brand`; admin de marcas → widget de apariencia en la pantalla nativa del canal + guarda de nombre/estado/slug; `customer_brand` y `category` usan `sales_channel_id`. Spec y plan: `docs/superpowers/specs|plans/2026-10-17-brand-as-sales-channel*`. |
 ---
 
 ## 🔴 Pendientes
 
 ### 1. Varios
 
-- `src/utils/brand-middleware.ts` exporta `requireBrandId` y `optionalBrandId`
-  sin cablear — utilidades genéricas de extracción de marca, disponibles si se
-  necesitan. (`validateCartBrandAccess` se eliminó en la Task 4; su rol lo cubre
-  ahora `validateCartLineItemBrand`, que deriva la marca del `sales_channel_id`
-  del carrito en vez de un header `X-Brand-Id`.)
 - Subscribers heredados `brand-created.ts` y `product-brand-validator.ts` —
   **resueltos**, ver fila "Subscribers heredados" en ✅ Resuelto.
 - `pk_*` publishable key y credenciales de prueba están en la salida del seed.
@@ -61,20 +56,14 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 - `/store/categories/:slug/products` y `/store/categories` (lista) se scopean al
   canal de la publishable key — **resuelto**, ver fila "Tenencia — `/store/categories`
   y `X-Brand-Id` derivado" en ✅ Resuelto.
-- `X-Brand-Id` en `/store/customers/me*` y `/store/orders*` ahora se deriva del
-  sales channel de la publishable key — **resuelto**, misma fila de arriba.
-- No hay admin user scopeado por marca: el admin ve todos los canales/marcas.
+- En `/store/customers/me*` y `/store/orders*` la marca del cliente se valida
+  contra el sales channel de la publishable key — **resuelto**, misma fila de arriba.
+- No hay admin user scopeado por marca: el admin ve todos los canales (marcas).
 - Almacén único (`Almacén CDMX`) compartido entre los sales channels de las dos
   marcas; si se quiere inventario separado, un stock location por marca.
 - Filtros de catálogo que tenía el `/store/products` custom borrado
   (`min_price`/`max_price`/`sizes`/`in_stock`): reimplementar como ruta custom
   scopeada por canal si un storefront los necesita.
-- `default_sales_channel_id` del store apunta al "Default Sales Channel" de
-  Medusa (sin publishable key, ningún storefront lo usa). El seed drena el canal
-  legacy **solo de los productos con marca** (los sin marca, si los hubiera, se
-  quedan y se loguean como warning), y la publishable key legacy (la vieja
-  titulada `"Storefront"`) ahora queda **revocada** por el seed (M3), así que no
-  puede servir requests. El canal en sí queda como huérfano inofensivo.
 - **Carrito y marca**: Medusa 2.20.1 no valida nativamente que la variante esté
   en el `sales_channel_id` del carrito (verificado 2026-09-07). Cubierto por el
   middleware `validateCartLineItemBrand` (Task 7), cableado en
@@ -83,6 +72,9 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   `sales_channel_id` sin validar; `POST /store/carts` con `items[]` inline naciendo
   mixto) están **resueltos** — ver fila "Carrito y marca — cierre de fugas" en la
   tabla de ✅ Resuelto.
+- Fase 2 del principio "todo nativo": cambiar el módulo `category` por product categories nativas y `product-extension` (SKU, tallas) por variantes/opciones nativas.
+- `customer-created` confía en el `metadata.sales_channel_id` que manda el storefront al registrar; derivarlo de la publishable key del registro.
+- Contrato con el control plane: `brands[].default` (exactamente una). Reflejarlo en el sub-proyecto 2.
 
 ### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
@@ -94,16 +86,11 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 - Tipo `BrandProduct` compartido y docstrings de `brand-products` —
   **resueltos**, ver fila "Admin — tipo `BrandProduct` compartido y
   docstrings" en ✅ Resuelto.
-- **Crear productos desde la UI del admin no funciona** (consecuencia buscada
-  del bloqueo de productos sin marca): el form nativo `/products/create` no
-  manda `additional_data.brand_id` → 400. Falta un form propio con selector de
-  marca (o un widget que inyecte el campo) que llame `POST /admin/products` con
-  `additional_data.brand_id` o `POST /admin/brand-products`. Mientras tanto, crear
-  vía API/seed. La importación CSV también queda bloqueada.
 - `pending_orders` en el endpoint de métricas cuenta `status === "pending"`, que
   en Medusa v2 es el estado activo normal (cuenta todo pedido no completado).
   Revisar contra `fulfillment_status`/`payment_status` cuando haya pedidos
   sembrados.
+
 
 ### 3. Tenancy (sub-proyectos 2-4)
 
@@ -111,6 +98,10 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 - Provisioner: crear DB, `db:migrate`, contenedor, Traefik, `medusa user`, `CONTROL_PLANE_TOKEN` por tenant, llamada a `apply`.
 - Operación de la flota: migraciones en todos los tenants, suspender/borrar.
 - Clientes compartidos entre marcas de un tenant (`customer_brand` N:M).
+
+### 4. Varios (marca = sales channel)
+
+- `create-apparel-product` ignora `category_ids` (preexistente), así que `category_product` queda vacío.
 
 ---
 
@@ -126,17 +117,25 @@ pnpm install
 npx medusa db:migrate
 
 # 3. Datos de prueba (idempotente)
-npm run seed
+npx medusa exec ./src/scripts/seed-demo.ts
 #   → imprime la publishable key (pk_...) al final
 
 # 4. Usuario admin (NO va en el seed)
 npx medusa user -e admin@example.com -p supersecret
 
 # 5. Servidor
-npm run dev
+npx medusa develop
 #   API:   http://localhost:9000
 #   Admin: http://localhost:9000/app
 ```
+
+### Actualizar desde el módulo de marca
+
+- Una DB existente se recrea y resiembra: `customer_brand.sales_channel_id` y `category.sales_channel_id` (renombradas) conservarían ids de marca viejos y todo cliente recibiría 403.
+- `db:migrate` sobre una DB anterior a esta rama pregunta de forma interactiva si borra las tablas de links eliminadas. En CI usa `--execute-all-links` o `--skip-links`.
+- Las tablas viejas de `brand` se dejan a propósito.
+- Los storefronts pasan de `/store/brands*` a `GET /store/brand`.
+- El payload del control plane exige exactamente un `brands[].default: true`.
 
 ### Datos que deja el seed
 
@@ -154,7 +153,7 @@ npm run dev
 
 ```bash
 PK="<publishable key del seed>"
-BRAND_URBAN="<id de la marca urban-street>"    # select id from brand where slug='urban-street'
+PK_CLASSIC="<publishable key de la otra marca>"
 
 # login
 TOKEN=$(curl -s -X POST http://localhost:9000/auth/customer/emailpass \
@@ -163,9 +162,9 @@ TOKEN=$(curl -s -X POST http://localhost:9000/auth/customer/emailpass \
 
 # marca correcta → 200
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9000/store/customers/me/brand \
-  -H "x-publishable-api-key: $PK" -H "authorization: Bearer $TOKEN" -H "x-brand-id: $BRAND_URBAN"
+  -H "x-publishable-api-key: $PK" -H "authorization: Bearer $TOKEN"
 
-# marca ajena → 403 "No tienes acceso a esta marca"
+# publishable key de otra marca (PK_CLASSIC) → 403 "No tienes acceso a esta marca"
 ```
 
 ### Smoke test del checkout (provider manual)
@@ -175,10 +174,19 @@ Stripe. Para probar `stripe`/`stripe-oxxo` en vez de `pp_system_default` hace
 falta un `STRIPE_API_KEY` de test real en `.env`.
 
 ```bash
-PK="<publishable key del seed>"
+PK="pk_..."                              # publishable key del seed
+SC_URBAN="<id del sales channel de la marca>"  # GET /admin/sales-channels
+ADMIN_TOKEN="<token de admin>"
 REGION="<id de la región México>"       # select id from region
 VARIANT="<id de una variante>"          # select id from product_variant limit 1
 SHIP_OPT="<id de un shipping option>"   # select id from shipping_option
+
+# Registro de cliente: la marca se manda en metadata.sales_channel_id
+T=$(curl -s http://localhost:9000/auth/customer/emailpass/register \
+  -H 'content-type: application/json' -d '{"email":"buyer@test.mx","password":"Password123"}' | jq -r .token)
+curl -s http://localhost:9000/store/customers -H "authorization: Bearer $T" -H "x-publishable-api-key: $PK" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"buyer@test.mx\",\"metadata\":{\"sales_channel_id\":\"$SC_URBAN\"}}" > /dev/null
 
 CART=$(curl -s -X POST http://localhost:9000/store/carts \
   -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
@@ -207,6 +215,10 @@ curl -s -X POST http://localhost:9000/store/payment-collections/$PC/payment-sess
 # → { "type": "order", "order": { "status": "pending", ... } }
 curl -s -X POST http://localhost:9000/store/carts/$CART/complete \
   -H 'content-type: application/json' -H "x-publishable-api-key: $PK" | jq .
+
+# la orden quedó en el canal de la marca → $SC_URBAN
+curl -s "http://localhost:9000/admin/orders?fields=sales_channel_id&limit=1" \
+  -H "authorization: Bearer $ADMIN_TOKEN" | jq -r '.orders[0].sales_channel_id'
 ```
 
 ### Smoke test de Stripe (tarjetas) y OXXO — con llaves de test reales

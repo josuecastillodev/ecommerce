@@ -1,6 +1,6 @@
 /**
  * Category Entity
- * Hierarchical categories with optional brand association
+ * Hierarchical categories with optional brand (sales channel) association
  */
 
 import { model } from "@medusajs/framework/utils"
@@ -12,14 +12,14 @@ export const Category = model.define("category", {
   description: model.text().nullable(),
   image_url: model.text().nullable(),
   parent_id: model.text().nullable(),
-  brand_id: model.text().nullable(), // null = global category
+  sales_channel_id: model.text().nullable(), // null = global category
   position: model.number().default(0),
   is_active: model.boolean().default(true),
   metadata: model.json().nullable(),
 })
   .indexes([
     {
-      on: ["slug", "brand_id"],
+      on: ["slug", "sales_channel_id"],
       unique: true,
       where: "deleted_at IS NULL",
     },
@@ -27,7 +27,7 @@ export const Category = model.define("category", {
       on: ["parent_id"],
     },
     {
-      on: ["brand_id"],
+      on: ["sales_channel_id"],
     },
     {
       on: ["position"],

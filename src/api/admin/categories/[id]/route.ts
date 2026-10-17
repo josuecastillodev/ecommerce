@@ -100,7 +100,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   if (input.slug && input.slug !== existingCategory.slug) {
     const slugValidation = await categoryService.validateSlugUniqueness(
       input.slug,
-      existingCategory.brand_id,
+      existingCategory.sales_channel_id,
       id
     )
     if (!slugValidation.valid) {

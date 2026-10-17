@@ -93,7 +93,7 @@ npx medusa user -e admin@acme.mx -p <password>
 
 - Formato de la config: ver `tenants/demo.json` y `src/tenant/config-schema.ts`.
 - `initial` (región, impuestos, almacén, envíos) se aplica **una sola vez**; después se gestiona en el admin de Medusa.
-- `brands` se sincroniza en cada apply: crea marca + sales channel + publishable key; las marcas que salen de la config se desactivan (nunca se borran).
+- `brands` se sincroniza en cada apply: crea el sales channel (la marca) + publishable key; las marcas que salen de la config se desactivan (nunca se borran).
 - La apariencia de cada marca (logo, colores, descripción) la edita el cliente en el admin de Medusa; nombre, slug y estado solo desde el control plane.
 - El control plane usa `POST /internal/tenant/apply` con `Authorization: Bearer $CONTROL_PLANE_TOKEN`. Sin `CONTROL_PLANE_TOKEN` en el `.env`, el endpoint no existe.
 - Datos de demo (Urban Street + Classic Threads, productos, clientes de prueba): `pnpm run seed`.
@@ -104,13 +104,11 @@ npx medusa user -e admin@acme.mx -p <password>
 /
 ├── src/
 │   ├── modules/
-│   │   ├── brand/           # Módulo de marcas
 │   │   └── cloudinary-file/ # Proveedor de archivos Cloudinary
 │   ├── api/
 │   │   ├── admin/           # Rutas de administración
-│   │   │   └── brands/
 │   │   └── store/           # Rutas de tienda
-│   │       └── brands/
+│   │       └── brand/
 │   ├── links/               # Enlaces entre módulos
 │   ├── workflows/           # Flujos de trabajo
 │   ├── subscribers/         # Suscriptores de eventos
@@ -125,19 +123,13 @@ npx medusa user -e admin@acme.mx -p <password>
 
 ### Admin
 
-- `GET /admin/brands` - Listar marcas
-- `POST /admin/brands` - Crear marca
-- `GET /admin/brands/:id` - Obtener marca
-- `POST /admin/brands/:id` - Actualizar marca
-- `DELETE /admin/brands/:id` - Eliminar marca
-- `GET /admin/brand-products` / `GET /admin/brand-products/:id` - Productos con datos de marca y stock (des-shadow de las pantallas nativas de Productos)
 - `GET /admin/dashboard/metrics` - Métricas agregadas por marca (productos, inventario, pedidos)
+
+Las marcas son sales channels; se editan en Settings → Sales Channels (apariencia) y las gestiona el control plane vía `POST /internal/tenant/apply`.
 
 ### Store
 
-- `GET /store/brands` - Listar marcas activas
-- `GET /store/brands/:slug` - Obtener marca por slug
-- `GET /store/brands/:slug/products` - Productos de una marca
+- `GET /store/brand` - Marca de la publishable key
 - `GET/POST /store/customers/me/brand` - Marca y preferencias del cliente autenticado
 
 ### Auth y clientes
@@ -152,23 +144,23 @@ ni `/store/customers` custom):
 
 La capa multi-marca se aplica encima con un middleware
 (`validateCustomerBrand` en `src/utils/brand-middleware.ts`) que compara el
-header `X-Brand-Id` contra la marca del cliente y responde `403` si no
-coinciden, más un subscriber (`customer-created.ts`) que asocia cada cliente
-nuevo a su marca desde `metadata.brand_id`.
+sales channel de la publishable key contra la marca del cliente y responde
+`403` si no coinciden, más un subscriber (`customer-created.ts`) que asocia
+cada cliente nuevo a su marca desde `metadata.sales_channel_id`.
 
-## Modelo de Datos - Brand
+## Modelo de Datos - Marca
 
-| Campo           | Tipo     | Descripción                    |
-|-----------------|----------|--------------------------------|
-| id              | string   | Identificador único            |
-| name            | string   | Nombre de la marca             |
-| slug            | string   | Slug único para URLs           |
-| logo_url        | string?  | URL del logo                   |
-| primary_color   | string   | Color primario (hex)           |
-| secondary_color | string   | Color secundario (hex)         |
-| description     | string?  | Descripción de la marca        |
-| active          | boolean  | Estado activo/inactivo         |
-| metadata        | json?    | Metadatos adicionales          |
+Una marca es un sales channel nativo; sus datos viven en `metadata`:
+
+| Campo (`metadata`)      | Descripción                         |
+|-------------------------|-------------------------------------|
+| `brand_slug`            | Slug único (solo el control plane)  |
+| `brand_logo_url`        | URL del logo (http/https)           |
+| `brand_primary_color`   | Color primario (hex)                |
+| `brand_secondary_color` | Color secundario (hex)              |
+
+Nombre y descripción son los del canal; el estado es `is_disabled`. El canal
+default del store es la marca default.
 
 ## Configuración de Storefronts
 
@@ -182,14 +174,13 @@ NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_...   # la de "Urban Street Storefront" o 
 NEXT_PUBLIC_BRAND_SLUG=urban-street          # o classic-threads
 ```
 
-Con eso, `/store/products` y `/store/brands/:slug/products` quedan aislados por
+Con eso, `/store/products` queda aislado por
 marca de forma nativa (Medusa filtra por el sales channel de la key). `/store/carts`
 y el checkout quedan aislados mediante un middleware de validación de marca
 (`validateCartLineItemBrand`), porque Medusa 2.20 no valida nativamente que la
-variante pertenezca al sales channel del carrito. El header
-`X-Brand-Id` se sigue enviando en las llamadas autenticadas de cliente
-(`/store/customers/me*`, `/store/orders*`), que se validan contra la marca
-asociada al cliente.
+variante pertenezca al sales channel del carrito. Las llamadas autenticadas de
+cliente (`/store/customers/me*`, `/store/orders*`) se validan contra la marca
+asociada al cliente usando la publishable key.
 
 ## Desarrollo
 

@@ -1,6 +1,5 @@
 /**
- * Create Product with Brand Workflow
- * Creates a product with variants and links it to a brand
+ * Create Apparel Product Workflow — crea un producto de ropa (tallas × colores, SKUs) en el sales channel de su marca. Lo usa el seed de demo.
  */
 
 import {
@@ -10,39 +9,10 @@ import {
   StepResponse,
   transform,
 } from "@medusajs/framework/workflows-sdk"
-import {
-  createProductsWorkflow,
-  linkProductsToSalesChannelWorkflow,
-} from "@medusajs/medusa/core-flows"
+import { createProductsWorkflow } from "@medusajs/medusa/core-flows"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
-import { BRAND_MODULE } from "../modules/brand"
 import { SKUService } from "../modules/product-extension"
-import type { CreateProductWithBrandInput, VariantInput } from "../modules/product-extension/types"
-import type BrandModuleService from "../modules/brand/service"
-
-// Step: Validate brand exists and is active
-const validateBrandStep = createStep(
-  "validate-brand",
-  async (input: { brand_id: string }, { container }) => {
-    const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
-
-    const brand = await brandService.retrieveBrand(input.brand_id)
-
-    if (!brand) {
-      throw new Error(`Brand with ID ${input.brand_id} not found`)
-    }
-
-    if (!brand.active) {
-      throw new Error(`Brand ${brand.name} is not active`)
-    }
-
-    return new StepResponse({
-      brand_id: brand.id,
-      brand_slug: brand.slug,
-      brand_name: brand.name,
-    })
-  }
-)
+import type { CreateApparelProductInput, VariantInput } from "../modules/product-extension/types"
 
 // Step: Resolve the shipping profile to attach the product to.
 // createProductsWorkflow silently skips the fulfillment link when
@@ -94,83 +64,6 @@ const validateSKUUniquenessStep = createStep(
   }
 )
 
-// Step: Link product to brand
-const linkProductToBrandStep = createStep(
-  "link-product-to-brand",
-  async (
-    input: { product_id: string; brand_id: string },
-    { container }
-  ) => {
-    const remoteLink = container.resolve(ContainerRegistrationKeys.REMOTE_LINK)
-
-    await remoteLink.create({
-      [BRAND_MODULE]: {
-        brand_id: input.brand_id,
-      },
-      [Modules.PRODUCT]: {
-        product_id: input.product_id,
-      },
-    })
-
-    return new StepResponse({
-      product_id: input.product_id,
-      brand_id: input.brand_id,
-    })
-  },
-  async (data, { container }) => {
-    if (!data) return
-
-    const remoteLink = container.resolve(ContainerRegistrationKeys.REMOTE_LINK)
-
-    await remoteLink.dismiss({
-      [BRAND_MODULE]: {
-        brand_id: data.brand_id,
-      },
-      [Modules.PRODUCT]: {
-        product_id: data.product_id,
-      },
-    })
-  }
-)
-
-// Step: Link product to its brand's sales channel.
-// Sin esto el producto queda fuera de todo sales channel y ningún storefront
-// (que consulta con su publishable key) lo ve.
-const linkProductToBrandSalesChannelStep = createStep(
-  "link-product-to-brand-sales-channel",
-  async (
-    input: { product_id: string; brand_id: string },
-    { container }
-  ) => {
-    const query = container.resolve(ContainerRegistrationKeys.QUERY)
-
-    const { data: brands } = await query.graph({
-      entity: "brand",
-      fields: ["id", "sales_channel.id"],
-      filters: { id: input.brand_id },
-    })
-
-    const channelId = brands[0]?.sales_channel?.id
-    if (!channelId) {
-      throw new Error(
-        `Brand ${input.brand_id} has no sales channel linked. Run "pnpm run seed" to provision per-brand channels.`
-      )
-    }
-
-    await linkProductsToSalesChannelWorkflow(container).run({
-      input: { id: channelId, add: [input.product_id], remove: [] },
-    })
-
-    return new StepResponse({ product_id: input.product_id, channel_id: channelId })
-  },
-  async (data, { container }) => {
-    if (!data) return
-    await linkProductsToSalesChannelWorkflow(container).run({
-      input: { id: data.channel_id, add: [], remove: [data.product_id] },
-    })
-  }
-)
-
 // Helper function to build variant options
 function buildVariantOptions(variants: VariantInput[]) {
   const sizes = [...new Set(variants.map((v) => v.size))]
@@ -189,16 +82,13 @@ function buildVariantOptions(variants: VariantInput[]) {
 }
 
 // Main workflow
-export const createProductWithBrandWorkflow = createWorkflow(
-  "create-product-with-brand",
-  (input: CreateProductWithBrandInput) => {
-    // Step 1: Validate brand exists
-    const brandData = validateBrandStep({ brand_id: input.brand_id })
-
+export const createApparelProductWorkflow = createWorkflow(
+  "create-apparel-product",
+  (input: CreateApparelProductInput) => {
     // Step 2: Generate product slug and SKUs
     const productData = transform(
-      { input, brandData },
-      ({ input, brandData }) => {
+      { input },
+      ({ input }) => {
         const productSlug = input.slug || SKUService.generateProductSlug(input.title)
 
         // Generate SKUs for all variants
@@ -206,7 +96,7 @@ export const createProductWithBrandWorkflow = createWorkflow(
           const sku =
             variant.sku ||
             SKUService.generateForVariant(
-              brandData.brand_slug,
+              input.sku_prefix,
               productSlug,
               variant.size,
               variant.color.name
@@ -269,10 +159,8 @@ export const createProductWithBrandWorkflow = createWorkflow(
           shipping_profile_id: shippingProfileData.shipping_profile_id,
           options,
           variants,
-          metadata: {
-            ...input.metadata,
-            brand_id: input.brand_id,
-          },
+          sales_channels: [{ id: input.sales_channel_id }],
+          metadata: input.metadata,
         }
       }
     )
@@ -286,31 +174,8 @@ export const createProductWithBrandWorkflow = createWorkflow(
       },
     })
 
-    // Step 6: Get product ID and link to brand
-    const productId = transform({ products }, ({ products }) => products[0].id)
-
-    linkProductToBrandStep({
-      product_id: productId,
-      brand_id: input.brand_id,
-    })
-
-    linkProductToBrandSalesChannelStep({
-      product_id: productId,
-      brand_id: input.brand_id,
-    })
-
-    // Return created product
-    return new WorkflowResponse(
-      transform({ products, brandData }, ({ products, brandData }) => ({
-        ...products[0],
-        brand: {
-          id: brandData.brand_id,
-          slug: brandData.brand_slug,
-          name: brandData.brand_name,
-        },
-      }))
-    )
+    return new WorkflowResponse(transform({ products }, ({ products }) => products[0]))
   }
 )
 
-export default createProductWithBrandWorkflow
+export default createApparelProductWorkflow

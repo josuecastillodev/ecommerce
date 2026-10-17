@@ -27,9 +27,9 @@ export const CustomerRegistrationSchema = z.object({
     .string()
     .regex(/^\+?[1-9]\d{9,14}$/, "El teléfono debe ser válido (ej: +525512345678)")
     .optional(),
-  brand_id: z
+  sales_channel_id: z
     .string()
-    .min(1, "El brand_id es requerido"),
+    .min(1, "El sales_channel_id es requerido"),
   marketing_consent: z
     .boolean()
     .optional()
@@ -49,9 +49,9 @@ export const CustomerLoginSchema = z.object({
   password: z
     .string()
     .min(1, "La contraseña es requerida"),
-  brand_id: z
+  sales_channel_id: z
     .string()
-    .min(1, "El brand_id es requerido"),
+    .min(1, "El sales_channel_id es requerido"),
 })
 
 export type CustomerLoginInput = z.infer<typeof CustomerLoginSchema>
