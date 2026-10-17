@@ -84,11 +84,10 @@ export function validateCustomerBrand() {
 type VariantBrandInfo = {
   id: string
   channelIds: string[]
-  brandId: string | null
 }
 
 /**
- * Resuelve, por variante, los sales channels de su producto y el id de su marca.
+ * Resuelve, por variante, los sales channels de su producto.
  * Fail-closed: si `query.graph` devuelve menos filas que las pedidas, lanza —
  * nunca se deja pasar una variante que no se pudo verificar.
  */
@@ -98,7 +97,7 @@ async function resolveVariantBrandInfo(
 ): Promise<VariantBrandInfo[]> {
   const { data: variants } = await query.graph({
     entity: "variant",
-    fields: ["id", "product.brand.id", "product.sales_channels.id"],
+    fields: ["id", "product.sales_channels.id"],
     filters: { id: variantIds },
   })
 
@@ -111,7 +110,6 @@ async function resolveVariantBrandInfo(
   return (variants as any[]).map((v) => ({
     id: v.id,
     channelIds: (v.product?.sales_channels ?? []).map((sc: any) => sc.id),
-    brandId: v.product?.brand?.id ?? null,
   }))
 }
 
@@ -119,8 +117,7 @@ async function resolveVariantBrandInfo(
  * Rechaza (403) un conjunto de variantes que no puede convivir en un carrito:
  *
  * - Con `channelIds`: cada producto debe estar en alguno de esos sales channels.
- * - Sin `channelIds` (carrito sin canal resuelto): las variantes deben compartir
- *   una sola marca (`product.brand.id`); si abarcan >1, se rechaza.
+ * - Sin `channelIds`: las variantes deben compartir un solo sales channel (su marca).
  *
  * Devuelve el objeto de error listo para `res.status(403).json(...)`, o `null`
  * si el conjunto es válido.
@@ -142,8 +139,10 @@ function checkVariantsAgainstChannel(
     return null
   }
 
-  const brands = new Set(infos.map((i) => i.brandId).filter(Boolean) as string[])
-  if (brands.size > 1) {
+  // Sin canal resuelto: como cada producto vive en un solo canal (su marca),
+  // las variantes deben compartir ese canal.
+  const channels = new Set(infos.flatMap((i) => i.channelIds))
+  if (channels.size > 1) {
     return {
       type: "not_allowed",
       message: "No puedes mezclar productos de varias marcas en un carrito.",
@@ -160,8 +159,7 @@ function checkVariantsAgainstChannel(
  * forma explícita: resuelve el `sales_channel_id` del carrito y rechaza (403)
  * si la variante entrante (`body.variant_id`) o cualquier line item ya
  * presente pertenece a un producto que no está en ese canal. Como cada canal
- * es 1:1 con una marca (link `brand ↔ sales_channel`), "otro canal" = "otra
- * marca".
+ * es una marca (spec 2026-10-17), "otro canal" = "otra marca".
  *
  * Si el carrito no tiene `sales_channel_id` resuelto, en vez de dejar pasar a
  * ciegas se exige que todas las variantes compartan una sola marca.
