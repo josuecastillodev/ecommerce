@@ -36,17 +36,13 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Carrito y marca — cierre de fugas** | — | Dos huecos del guard de carrito cerrados. (1) `validateCartLineItemBrand` ya no hace `next()` a ciegas cuando el carrito no tiene `sales_channel_id`: sin canal resuelto exige que todas las variantes (entrante + items existentes) compartan `product.brand.id`; si abarcan >1 marca → `403`. (2) Nuevo middleware `validateCartCreateBrand`, cableado en `POST /store/carts`, valida los `items[]` inline antes de crear el carrito — canal objetivo = `body.sales_channel_id` o el de la publishable key; mezcla de marcas → `403`. Helper compartido `resolveVariantBrandInfo` + `checkVariantsAgainstChannel` (fail-closed si el lookup de variantes queda corto). Verificado con curl: `POST /store/carts` con items mixtos → 403, una marca → 200, sin items → 200; regresión de `/line-items` y `/complete` + checkout de una marca → orden, sin cambios; carrito con canal nulo + item de otra marca → 403. `pnpm run build` → 0 errores. |
 | **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
 
+| **Marca = sales channel nativo** | — | El módulo `brand` y sus links se eliminaron; cada sales channel es una marca (`metadata.brand_*`); el canal default del store es la marca default (`default: true` en la config); todo producto en exactamente un canal (hooks nativos `productsCreated`/`productsUpdated` + guarda de `/admin/sales-channels/:id/products`); el formulario nativo de crear producto vuelve a funcionar; `/store/brands*` → `GET /store/brand`; admin de marcas → widget de apariencia en la pantalla nativa del canal + guarda de nombre/estado/slug; `customer_brand` y `category` usan `sales_channel_id`. Spec y plan: `docs/superpowers/specs|plans/2026-10-17-brand-as-sales-channel*`. |
 ---
 
 ## 🔴 Pendientes
 
 ### 1. Varios
 
-- `src/utils/brand-middleware.ts` exporta `requireBrandId` y `optionalBrandId`
-  sin cablear — utilidades genéricas de extracción de marca, disponibles si se
-  necesitan. (`validateCartBrandAccess` se eliminó en la Task 4; su rol lo cubre
-  ahora `validateCartLineItemBrand`, que deriva la marca del `sales_channel_id`
-  del carrito en vez de un header `X-Brand-Id`.)
 - Subscribers heredados `brand-created.ts` y `product-brand-validator.ts` —
   **resueltos**, ver fila "Subscribers heredados" en ✅ Resuelto.
 - `pk_*` publishable key y credenciales de prueba están en la salida del seed.
@@ -63,18 +59,12 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   y `X-Brand-Id` derivado" en ✅ Resuelto.
 - `X-Brand-Id` en `/store/customers/me*` y `/store/orders*` ahora se deriva del
   sales channel de la publishable key — **resuelto**, misma fila de arriba.
-- No hay admin user scopeado por marca: el admin ve todos los canales/marcas.
+- No hay admin user scopeado por marca: el admin ve todos los canales (marcas).
 - Almacén único (`Almacén CDMX`) compartido entre los sales channels de las dos
   marcas; si se quiere inventario separado, un stock location por marca.
 - Filtros de catálogo que tenía el `/store/products` custom borrado
   (`min_price`/`max_price`/`sizes`/`in_stock`): reimplementar como ruta custom
   scopeada por canal si un storefront los necesita.
-- `default_sales_channel_id` del store apunta al "Default Sales Channel" de
-  Medusa (sin publishable key, ningún storefront lo usa). El seed drena el canal
-  legacy **solo de los productos con marca** (los sin marca, si los hubiera, se
-  quedan y se loguean como warning), y la publishable key legacy (la vieja
-  titulada `"Storefront"`) ahora queda **revocada** por el seed (M3), así que no
-  puede servir requests. El canal en sí queda como huérfano inofensivo.
 - **Carrito y marca**: Medusa 2.20.1 no valida nativamente que la variante esté
   en el `sales_channel_id` del carrito (verificado 2026-09-07). Cubierto por el
   middleware `validateCartLineItemBrand` (Task 7), cableado en
@@ -94,16 +84,14 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 - Tipo `BrandProduct` compartido y docstrings de `brand-products` —
   **resueltos**, ver fila "Admin — tipo `BrandProduct` compartido y
   docstrings" en ✅ Resuelto.
-- **Crear productos desde la UI del admin no funciona** (consecuencia buscada
-  del bloqueo de productos sin marca): el form nativo `/products/create` no
-  manda `additional_data.brand_id` → 400. Falta un form propio con selector de
-  marca (o un widget que inyecte el campo) que llame `POST /admin/products` con
-  `additional_data.brand_id` o `POST /admin/brand-products`. Mientras tanto, crear
-  vía API/seed. La importación CSV también queda bloqueada.
 - `pending_orders` en el endpoint de métricas cuenta `status === "pending"`, que
   en Medusa v2 es el estado activo normal (cuenta todo pedido no completado).
   Revisar contra `fulfillment_status`/`payment_status` cuando haya pedidos
   sembrados.
+
+- Fase 2 del principio "todo nativo": cambiar el módulo `category` por product categories nativas y `product-extension` (SKU, tallas) por variantes/opciones nativas.
+- `customer-created` confía en el `metadata.sales_channel_id` que manda el storefront al registrar; derivarlo de la publishable key del registro.
+- Contrato con el control plane: `brands[].default` (exactamente una). Reflejarlo en el sub-proyecto 2.
 
 ### 3. Tenancy (sub-proyectos 2-4)
 
@@ -154,7 +142,7 @@ npm run dev
 
 ```bash
 PK="<publishable key del seed>"
-BRAND_URBAN="<id de la marca urban-street>"    # select id from brand where slug='urban-street'
+PK_CLASSIC="<publishable key de la otra marca>"
 
 # login
 TOKEN=$(curl -s -X POST http://localhost:9000/auth/customer/emailpass \
@@ -163,9 +151,9 @@ TOKEN=$(curl -s -X POST http://localhost:9000/auth/customer/emailpass \
 
 # marca correcta → 200
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:9000/store/customers/me/brand \
-  -H "x-publishable-api-key: $PK" -H "authorization: Bearer $TOKEN" -H "x-brand-id: $BRAND_URBAN"
+  -H "x-publishable-api-key: $PK" -H "authorization: Bearer $TOKEN"
 
-# marca ajena → 403 "No tienes acceso a esta marca"
+# publishable key de otra marca (PK_CLASSIC) → 403 "No tienes acceso a esta marca"
 ```
 
 ### Smoke test del checkout (provider manual)
