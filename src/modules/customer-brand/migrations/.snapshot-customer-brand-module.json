@@ -38,8 +38,8 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "brand_id": {
-          "name": "brand_id",
+        "sales_channel_id": {
+          "name": "sales_channel_id",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,

@@ -1,51 +1,17 @@
 import { MedusaRequest, MedusaResponse, MedusaNextFunction } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
-import { BRAND_MODULE } from "../modules/brand"
-import type BrandModuleService from "../modules/brand/service"
 import type CustomerBrandModuleService from "../modules/customer-brand/service"
+import { BRAND_CHANNEL_FIELDS, brandFromChannel, type BrandChannel, type ChannelBrand } from "../brand/channel-brand"
 
 /**
- * Extract brand_id from request
- * Priority: header > query > body
+ * Marca del caller: la del sales channel de la publishable key del request
+ * (`req.publishable_key_context.sales_channel_ids`). `null` si no hay contexto
+ * de key o si el canal no es una marca activa. No se puede falsificar desde el
+ * cliente: sale de la key, no de un header.
  */
-export function extractBrandId(req: MedusaRequest): string | null {
-  // 1. Check header (preferred for storefronts)
-  const headerBrandId = req.headers["x-brand-id"] as string
-  if (headerBrandId) {
-    return headerBrandId
-  }
-
-  // 2. Check query params
-  const queryBrandId = req.query.brand_id as string
-  if (queryBrandId) {
-    return queryBrandId
-  }
-
-  // 3. Check body
-  const bodyBrandId = (req.body as any)?.brand_id as string
-  if (bodyBrandId) {
-    return bodyBrandId
-  }
-
-  return null
-}
-
-/**
- * Resuelve la marca del caller a partir del/los sales channel(s) de la
- * publishable key del request (`req.publishable_key_context.sales_channel_ids`).
- * Devuelve `null` si no hay contexto de pub key o si ningún canal está
- * vinculado a una marca activa.
- *
- * Usado por las rutas store scopeadas por marca (`/store/brands/:slug/products`,
- * `/store/categories*`) y por `resolveRequestBrandId` para derivar la marca del
- * cliente autenticado sin depender de un header.
- */
-export async function resolveCallerBrand(
-  req: MedusaRequest
-): Promise<{ id: string; slug: string; active: boolean } | null> {
-  const channelIds: string[] =
-    (req as any).publishable_key_context?.sales_channel_ids ?? []
+export async function resolveCallerBrand(req: MedusaRequest): Promise<ChannelBrand | null> {
+  const channelIds: string[] = (req as any).publishable_key_context?.sales_channel_ids ?? []
   if (channelIds.length === 0) {
     return null
   }
@@ -53,87 +19,19 @@ export async function resolveCallerBrand(
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { data: channels } = await query.graph({
     entity: "sales_channel",
-    fields: ["id", "brand.id", "brand.slug", "brand.active"],
+    fields: BRAND_CHANNEL_FIELDS,
     filters: { id: channelIds },
   })
 
-  const brand = (channels as any[])
-    .map((c) => c.brand)
-    .find((b) => b && b.active)
-
-  return brand ?? null
+  return (
+    (channels as unknown as BrandChannel[])
+      .map(brandFromChannel)
+      .find((b): b is ChannelBrand => b !== null && b.active) ?? null
+  )
 }
 
 /**
- * Resuelve el brand_id del request: primero la marca de la publishable key
- * (más confiable, no la puede falsificar el cliente), y si no hay pub key
- * context o no resuelve, cae a `extractBrandId` (header/query/body).
- */
-export async function resolveRequestBrandId(
-  req: MedusaRequest
-): Promise<string | null> {
-  const callerBrand = await resolveCallerBrand(req)
-  if (callerBrand) {
-    return callerBrand.id
-  }
-  return extractBrandId(req)
-}
-
-/**
- * Middleware to require brand_id in store requests
- * Storefronts should always send X-Brand-Id header
- */
-export function requireBrandId() {
-  return async (
-    req: MedusaRequest,
-    res: MedusaResponse,
-    next: MedusaNextFunction
-  ) => {
-    const brandId = extractBrandId(req)
-
-    if (!brandId) {
-      return res.status(400).json({
-        type: "invalid_request",
-        message: "Se requiere brand_id. Envía el header X-Brand-Id o incluye brand_id en la petición.",
-      })
-    }
-
-    // Validate that brand exists and is active
-    const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
-    try {
-      const [brand] = await brandService.listBrands({ id: brandId })
-
-      if (!brand) {
-        return res.status(404).json({
-          type: "not_found",
-          message: "La marca especificada no existe.",
-        })
-      }
-
-      if (!brand.active) {
-        return res.status(403).json({
-          type: "forbidden",
-          message: "La marca especificada no está activa.",
-        })
-      }
-
-      // Attach brand to request for downstream use
-      ;(req as any).brand = brand
-      ;(req as any).brand_id = brandId
-
-      next()
-    } catch (error) {
-      return res.status(500).json({
-        type: "server_error",
-        message: "Error al validar la marca.",
-      })
-    }
-  }
-}
-
-/**
- * Middleware to validate that authenticated customer belongs to the request brand
- * Use this for protected routes where customer must match brand
+ * Valida que el cliente autenticado pertenezca a la marca (sales channel) de la publishable key.
  */
 export function validateCustomerBrand() {
   return async (
@@ -149,21 +47,21 @@ export function validateCustomerBrand() {
       return next()
     }
 
-    const brandId = await resolveRequestBrandId(req)
+    const callerBrand = await resolveCallerBrand(req)
 
-    if (!brandId) {
+    if (!callerBrand) {
       return res.status(400).json({
         type: "invalid_request",
-        message: "Se requiere el header X-Brand-Id o una publishable key vinculada a una marca.",
+        message: "Se requiere una publishable key vinculada a una marca.",
       })
     }
 
     const customerBrandService: CustomerBrandModuleService = req.scope.resolve(CUSTOMER_BRAND_MODULE)
 
     try {
-      const belongsToBrand = await customerBrandService.customerBelongsToBrand(
+      const belongsToBrand = await customerBrandService.customerBelongsToChannel(
         customerId,
-        brandId
+        callerBrand.sales_channel_id
       )
 
       if (!belongsToBrand) {
@@ -180,35 +78,6 @@ export function validateCustomerBrand() {
         message: "Error al validar acceso a la marca.",
       })
     }
-  }
-}
-
-/**
- * Optional brand extraction middleware
- * Extracts brand_id if present but doesn't require it
- */
-export function optionalBrandId() {
-  return async (
-    req: MedusaRequest,
-    res: MedusaResponse,
-    next: MedusaNextFunction
-  ) => {
-    const brandId = extractBrandId(req)
-
-    if (brandId) {
-      const brandService: BrandModuleService = req.scope.resolve(BRAND_MODULE)
-      try {
-        const [brand] = await brandService.listBrands({ id: brandId })
-        if (brand) {
-          ;(req as any).brand = brand
-          ;(req as any).brand_id = brandId
-        }
-      } catch (error) {
-        // Silently continue without brand
-      }
-    }
-
-    next()
   }
 }
 

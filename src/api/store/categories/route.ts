@@ -34,7 +34,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     res.status(400).json({ message: "Missing publishable API key context" })
     return
   }
-  const brand_id = callerBrand.id
+  const brand_id = callerBrand.sales_channel_id
 
   // include_global !== "false" -> combinar categorías de la marca + globales.
   if (include_global !== "false") {

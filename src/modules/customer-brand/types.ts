@@ -5,7 +5,7 @@
 export interface CustomerBrandDTO {
   id: string
   customer_id: string
-  brand_id: string
+  sales_channel_id: string
   registered_from: "storefront" | "admin" | "api"
   marketing_consent: boolean
   language_preference: string
@@ -16,7 +16,7 @@ export interface CustomerBrandDTO {
 
 export interface CreateCustomerBrandInput {
   customer_id: string
-  brand_id: string
+  sales_channel_id: string
   registered_from?: "storefront" | "admin" | "api"
   marketing_consent?: boolean
   language_preference?: string
@@ -40,7 +40,7 @@ export interface CustomerWithBrand {
   created_at: Date
   updated_at: Date
   // Brand association
-  brand_id: string
+  sales_channel_id: string
   brand_name?: string
   brand_slug?: string
 }
@@ -51,14 +51,14 @@ export interface CustomerRegistrationInput {
   first_name: string
   last_name: string
   phone?: string
-  brand_id: string
+  sales_channel_id: string
   marketing_consent?: boolean
 }
 
 export interface CustomerLoginInput {
   email: string
   password: string
-  brand_id: string
+  sales_channel_id: string
 }
 
 export interface CustomerProfileResponse {

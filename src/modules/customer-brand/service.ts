@@ -14,46 +14,30 @@ class CustomerBrandModuleService extends MedusaService({
     return customerBrand || null
   }
 
-  /**
-   * Find customer-brand association by customer ID and brand ID
-   */
-  async findByCustomerAndBrand(customerId: string, brandId: string) {
+  async findByCustomerAndChannel(customerId: string, salesChannelId: string) {
     const [customerBrand] = await this.listCustomerBrands({
       customer_id: customerId,
-      brand_id: brandId,
+      sales_channel_id: salesChannelId,
     })
     return customerBrand || null
   }
 
-  /**
-   * Get all customers for a specific brand
-   */
-  async listByBrand(brandId: string) {
-    return this.listCustomerBrands({ brand_id: brandId })
+  async listByChannel(salesChannelId: string) {
+    return this.listCustomerBrands({ sales_channel_id: salesChannelId })
   }
 
-  /**
-   * Check if a customer belongs to a specific brand
-   */
-  async customerBelongsToBrand(customerId: string, brandId: string): Promise<boolean> {
-    const association = await this.findByCustomerAndBrand(customerId, brandId)
-    return association !== null
+  async customerBelongsToChannel(customerId: string, salesChannelId: string): Promise<boolean> {
+    return (await this.findByCustomerAndChannel(customerId, salesChannelId)) !== null
   }
 
-  /**
-   * Get the brand ID for a customer
-   */
-  async getCustomerBrandId(customerId: string): Promise<string | null> {
+  async getCustomerChannelId(customerId: string): Promise<string | null> {
     const association = await this.findByCustomerId(customerId)
-    return association?.brand_id || null
+    return association?.sales_channel_id || null
   }
 
-  /**
-   * Associate a customer with a brand
-   */
-  async associateCustomerWithBrand(
+  async associateCustomerWithChannel(
     customerId: string,
-    brandId: string,
+    salesChannelId: string,
     options?: {
       registered_from?: "storefront" | "admin" | "api"
       marketing_consent?: boolean
@@ -61,15 +45,13 @@ class CustomerBrandModuleService extends MedusaService({
       metadata?: Record<string, unknown>
     }
   ) {
-    // Check if association already exists
     const existing = await this.findByCustomerId(customerId)
     if (existing) {
-      throw new Error(`Customer ${customerId} is already associated with brand ${existing.brand_id}`)
+      throw new Error(`Customer ${customerId} is already associated with sales channel ${existing.sales_channel_id}`)
     }
-
     return this.createCustomerBrands({
       customer_id: customerId,
-      brand_id: brandId,
+      sales_channel_id: salesChannelId,
       registered_from: options?.registered_from || "storefront",
       marketing_consent: options?.marketing_consent || false,
       language_preference: options?.language_preference || "es",
@@ -99,12 +81,8 @@ class CustomerBrandModuleService extends MedusaService({
     })
   }
 
-  /**
-   * Get customer count per brand
-   */
-  async getCustomerCountByBrand(brandId: string): Promise<number> {
-    const customers = await this.listByBrand(brandId)
-    return customers.length
+  async getCustomerCountByChannel(salesChannelId: string): Promise<number> {
+    return (await this.listByChannel(salesChannelId)).length
   }
 }
 

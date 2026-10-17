@@ -28,7 +28,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     return
   }
 
-  const brand_id = callerBrand.id
+  const brand_id = callerBrand.sales_channel_id
 
   // Find category by slug
   let category = await categoryService.findBySlug(slug, brand_id as string)
