@@ -1,7 +1,7 @@
 # Marca = sales channel nativo — Design
 
 **Fecha:** 2026-10-17
-**Estado:** borrador, pendiente de revisión
+**Estado:** implementado
 
 ## Contexto y problema
 
@@ -225,3 +225,10 @@ No hay jest instalado; la verificación sigue siendo `medusa build`, los probes 
   guarda lo bloquea y la invariante lo reporta.
 - **Fricción en tenants de varias marcas:** el formulario preselecciona siempre el canal default.
   Se acepta para no escribir UI.
+
+## Desviaciones al implementar
+
+- `create-product-with-brand` se renombró a `create-apparel-product` (el seed necesita generar SKU y variantes).
+- `add-variant-to-product` se borró (su único caller, `/admin/brand-products`, se borró).
+- `low-stock-alert` y el selector de marca del dashboard se borraron (dependían de APIs eliminadas); el conteo de stock bajo por marca sigue en las métricas.
+- Se agregó una guarda de publishable keys (`POST /admin/api-keys/:id/sales-channels`) y el apply repara keys enlazadas a más de un canal de marca.
