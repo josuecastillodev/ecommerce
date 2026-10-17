@@ -43,7 +43,7 @@ export const createCategorySchema = z.object({
     .string()
     .nullable()
     .optional(),
-  brand_id: z
+  sales_channel_id: z
     .string()
     .nullable()
     .optional(),
@@ -103,7 +103,7 @@ export const updateCategorySchema = z.object({
 
 // List categories query schema
 export const listCategoriesQuerySchema = z.object({
-  brand_id: z.string().optional(),
+  sales_channel_id: z.string().optional(),
   parent_id: z.string().nullable().optional(),
   is_active: z.enum(["true", "false"]).optional(),
   include_global: z.enum(["true", "false"]).default("true"),
@@ -130,7 +130,7 @@ export const moveCategorySchema = z.object({
 
 // Category filters for admin
 export const adminCategoryFiltersSchema = z.object({
-  brand_id: z.string().optional(),
+  sales_channel_id: z.string().optional(),
   parent_id: z.string().nullable().optional(),
   is_active: z.enum(["true", "false", "all"]).optional(),
   search: z.string().optional(),

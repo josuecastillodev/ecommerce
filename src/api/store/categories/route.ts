@@ -12,7 +12,7 @@ import { resolveCallerBrand } from "../../../utils/brand-middleware"
 // GET /store/categories - Categorías de la marca del caller (+ globales).
 // Scopeado: la marca se deriva del sales channel de la publishable key, igual
 // que /store/brands/:slug/products y /store/categories/:slug/products. Un
-// `brand_id` que mande el cliente en el query string se ignora.
+// `sales_channel_id` del query string se ignora.
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const categoryService: CategoryModuleService = req.scope.resolve(CATEGORY_MODULE)
 
@@ -34,12 +34,12 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     res.status(400).json({ message: "Missing publishable API key context" })
     return
   }
-  const brand_id = callerBrand.sales_channel_id
+  const sales_channel_id = callerBrand.sales_channel_id
 
   // include_global !== "false" -> combinar categorías de la marca + globales.
   if (include_global !== "false") {
     if (tree === "true") {
-      const categoryTree = await categoryService.getCategoryTreeForBrand(brand_id)
+      const categoryTree = await categoryService.getCategoryTreeForChannel(sales_channel_id)
       res.json({
         categories: categoryTree,
         count: categoryTree.length,
@@ -47,7 +47,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       return
     }
 
-    const categories = await categoryService.getCategoriesForBrand(brand_id)
+    const categories = await categoryService.getCategoriesForChannel(sales_channel_id)
     res.json({
       categories,
       count: categories.length,
@@ -57,7 +57,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   // include_global === "false" -> solo categorías propias de la marca.
   if (tree === "true") {
-    const categoryTree = await categoryService.getCategoryTree(brand_id)
+    const categoryTree = await categoryService.getCategoryTree(sales_channel_id)
     res.json({
       categories: categoryTree,
       count: categoryTree.length,
@@ -66,7 +66,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   }
 
   const categories = await categoryService.listCategories(
-    { brand_id, is_active: true },
+    { sales_channel_id, is_active: true },
     { order: { position: "ASC", name: "ASC" } }
   )
   res.json({
