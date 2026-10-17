@@ -94,37 +94,6 @@ export default defineMiddlewares({
       ],
     },
 
-    // ==================
-    // Store Brand Routes
-    // ==================
-    {
-      matcher: "/store/brands",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(
-          z.object({
-            offset: z.coerce.number().optional(),
-            limit: z.coerce.number().optional(),
-          }), LIST_QUERY_CONFIG),
-      ],
-    },
-    {
-      matcher: "/store/brands/:slug/products",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(
-          z.object({
-            offset: z.coerce.number().optional(),
-            limit: z.coerce.number().optional(),
-            category_id: z.string().optional(),
-            min_price: z.coerce.number().min(0).optional(),
-            max_price: z.coerce.number().min(0).optional(),
-            sizes: z.string().optional(),
-            in_stock: z.enum(["true", "false"]).optional(),
-          }), LIST_QUERY_CONFIG),
-      ],
-    },
-
     // ======================
     // Admin Category Routes
     // ======================
