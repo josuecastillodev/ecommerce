@@ -11,6 +11,7 @@ import { BRAND_CHANNEL_FIELDS, BRAND_METADATA_KEYS, type BrandChannel } from "..
 
 const OWNED_BY_CONTROL_PLANE =
   "Las marcas (canales de venta) las gestiona el control plane del tenant; aquí solo se edita su apariencia."
+const SLUG_OWNED = "brand_slug no se puede cambiar ni borrar: lo gestiona el control plane del tenant."
 const HEX = /^#[0-9A-Fa-f]{6}$/
 
 const reject = (res: MedusaResponse, message: string) =>
@@ -41,9 +42,12 @@ export function guardSalesChannelUpdate() {
       return reject(res, OWNED_BY_CONTROL_PLANE)
 
     if (body.metadata !== undefined) {
+      const currentSlug = current.metadata?.[BRAND_METADATA_KEYS.slug]
+      // Un objeto se fusiona con la metadata actual (mergeMetadata: "" borra la clave); `null` no pasa por el merge.
+      if (body.metadata === null && currentSlug) return reject(res, SLUG_OWNED)
       const md = body.metadata ?? {}
-      if (md[BRAND_METADATA_KEYS.slug] !== current.metadata?.[BRAND_METADATA_KEYS.slug])
-        return reject(res, OWNED_BY_CONTROL_PLANE)
+      const slug = md[BRAND_METADATA_KEYS.slug]
+      if (slug !== undefined && slug !== currentSlug) return reject(res, SLUG_OWNED)
       for (const key of [BRAND_METADATA_KEYS.primary_color, BRAND_METADATA_KEYS.secondary_color]) {
         const v = md[key]
         if (v !== undefined && v !== "" && !(typeof v === "string" && HEX.test(v)))
@@ -58,9 +62,10 @@ export function guardSalesChannelUpdate() {
 }
 
 /**
- * POST /admin/api-keys/:id/sales-channels: una publishable key enlazada a un
- * canal de marca no se re-enlaza desde el admin (rompería el aislamiento entre
- * marcas). El apply la repara si aun así ocurre.
+ * POST /admin/api-keys/:id/sales-channels: las keys de las marcas las crea y
+ * enlaza el control plane (apply). Desde el admin no se re-enlaza una key de
+ * marca ni se agrega un canal de marca a ninguna publishable key: rompería el
+ * aislamiento entre marcas. El apply repara la key si aun así ocurre.
  */
 export function guardApiKeySalesChannels() {
   return async (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
@@ -72,8 +77,20 @@ export function guardApiKeySalesChannels() {
     })
     const key = data[0] as any
     if (!key) return next() // que el handler nativo responda 404
-    const linkedToBrand = (key.sales_channels ?? []).some((sc: any) => sc?.metadata?.[BRAND_METADATA_KEYS.slug])
-    if (key.type === "publishable" && linkedToBrand) return reject(res, OWNED_BY_CONTROL_PLANE)
+    if (key.type !== "publishable") return next()
+
+    const isBrand = (sc: any) => Boolean(sc?.metadata?.[BRAND_METADATA_KEYS.slug])
+    if ((key.sales_channels ?? []).some(isBrand)) return reject(res, OWNED_BY_CONTROL_PLANE)
+
+    const add: string[] = Array.isArray((req.body as any)?.add) ? (req.body as any).add : []
+    if (add.length > 0) {
+      const { data: added } = await query.graph({
+        entity: "sales_channel",
+        fields: ["id", "metadata"],
+        filters: { id: add },
+      })
+      if ((added as any[]).some(isBrand)) return reject(res, OWNED_BY_CONTROL_PLANE)
+    }
     return next()
   }
 }

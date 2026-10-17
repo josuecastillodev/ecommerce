@@ -27,6 +27,6 @@ export async function assertProductsInOneChannel(container: MedusaContainer, pro
   const detail = bad.map((p) => `"${p.title}" (${p.channels} canales)`).join(", ")
   throw new MedusaError(
     MedusaError.Types.INVALID_DATA,
-    `Cada producto debe estar en exactamente un canal de venta (su marca): ${detail}.`
+    `Cada producto debe estar en exactamente un canal de venta (su marca): ${detail}. Deja un solo canal en "Canales de venta" del producto y vuelve a guardar.`
   )
 }
