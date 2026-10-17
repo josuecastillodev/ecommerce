@@ -2,7 +2,7 @@
  * Admin API Functions for Multi-Brand
  */
 
-import type { Brand, BrandProductListResponse, DashboardMetrics } from "./types"
+import type { Brand, DashboardMetrics } from "./types"
 
 const API_BASE = "/admin"
 
@@ -70,50 +70,4 @@ export async function fetchDashboardMetrics(brandId?: string): Promise<Dashboard
 
   const data = await response.json()
   return data.metrics
-}
-
-/**
- * Fetch products with brand filter
- */
-export async function fetchProducts(params: {
-  brand_id?: string
-  limit?: number
-  offset?: number
-  status?: string
-}): Promise<BrandProductListResponse> {
-  const searchParams = new URLSearchParams()
-
-  if (params.brand_id) searchParams.set("brand_id", params.brand_id)
-  if (params.limit) searchParams.set("limit", String(params.limit))
-  if (params.offset) searchParams.set("offset", String(params.offset))
-  if (params.status) searchParams.set("status", params.status)
-
-  const response = await fetch(`${API_BASE}/brand-products?${searchParams}`)
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch products")
-  }
-
-  return response.json()
-}
-
-/**
- * Fetch low stock products
- */
-export async function fetchLowStockProducts(
-  brandId?: string,
-  threshold = 10
-): Promise<BrandProductListResponse> {
-  const params = new URLSearchParams()
-  params.set("low_stock", "true")
-  params.set("threshold", String(threshold))
-  if (brandId) params.set("brand_id", brandId)
-
-  const response = await fetch(`${API_BASE}/brand-products?${params}`)
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch low stock products")
-  }
-
-  return response.json()
 }

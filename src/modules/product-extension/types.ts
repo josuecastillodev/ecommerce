@@ -23,8 +23,9 @@ export interface VariantInput {
 }
 
 // Product creation input with brand
-export interface CreateProductWithBrandInput {
-  brand_id: string
+export interface CreateApparelProductInput {
+  sales_channel_id: string
+  sku_prefix: string // slug de la marca
   title: string
   slug?: string
   description?: string
@@ -40,33 +41,9 @@ export interface CreateProductWithBrandInput {
   metadata?: Record<string, unknown>
 }
 
-// Product update input
-export interface UpdateProductWithBrandInput {
-  id: string
-  title?: string
-  description?: string
-  subtitle?: string
-  thumbnail?: string
-  images?: string[]
-  base_price?: number
-  category_ids?: string[]
-  status?: "draft" | "published"
-  metadata?: Record<string, unknown>
-}
-
-// Variant creation input for existing product
-export interface AddVariantInput {
-  product_id: string
-  brand_id: string
-  size: Size
-  color: ProductColor
-  stock: number
-  price?: number
-}
-
 // SKU generation input
 export interface SKUGenerationInput {
-  brand_slug: string
+  sku_prefix: string
   product_slug: string
   size: Size
   color_name: string
@@ -74,7 +51,7 @@ export interface SKUGenerationInput {
 
 // Product query filters
 export interface ProductQueryFilters {
-  brand_id?: string
+  sales_channel_id?: string
   category_id?: string
   status?: "draft" | "published"
   min_price?: number

@@ -291,44 +291,41 @@ export function validateCartCreateBrand() {
 }
 
 /**
- * Todo producto creado desde el admin debe nacer con marca: POST /admin/products
- * exige `additional_data.brand_id` (el hook `productsCreated` liga marca + canal).
- * Medusa envuelve el `additionalDataValidator` en `.nullish()`, así que la
- * obligatoriedad se valida aquí.
- *
- * Cablear en POST /admin/products.
+ * POST /admin/sales-channels/:id/products no tiene hook: un producto agregado
+ * aquí quedaría en dos marcas, y uno quitado, en ninguna. Para cambiar un
+ * producto de marca se edita su canal desde la pantalla del producto.
  */
-export function requireProductBrand() {
-  return (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
-    const brandId = (req.body as any)?.additional_data?.brand_id
-    if (typeof brandId === "string" && brandId.length > 0) {
-      return next()
-    }
-    return res.status(400).json({
-      type: "invalid_data",
-      message: "Todo producto debe tener marca: envía additional_data.brand_id.",
-    })
-  }
-}
+export function guardSalesChannelProducts() {
+  return async (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
+    const body = (req.body as any) ?? {}
+    const add: string[] = Array.isArray(body.add) ? body.add : []
+    const remove: string[] = Array.isArray(body.remove) ? body.remove : []
 
-/**
- * Batch create e importación CSV no pueden llevar marca por producto, así que
- * crearían productos sin marca (invisibles para todo storefront). Se rechazan;
- * el batch sigue permitido para `update`/`delete`.
- *
- * Cablear en POST /admin/products/batch (`{ batch: true }`), /admin/products/import
- * y /imports.
- */
-export function rejectUnbrandedProductCreate({ batch = false } = {}) {
-  return (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
-    const creates = (req.body as any)?.create
-    if (batch && !(Array.isArray(creates) && creates.length > 0)) {
+    if (remove.length > 0) {
+      return res.status(400).json({
+        type: "invalid_data",
+        message: "Un producto no puede quedarse sin marca. Cambia su canal de venta desde la pantalla del producto.",
+      })
+    }
+    if (add.length === 0) {
       return next()
     }
-    return res.status(400).json({
-      type: "invalid_data",
-      message:
-        "La creación masiva/importación de productos no asigna marca. Crea cada producto con POST /admin/products y additional_data.brand_id.",
+
+    const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+    const { data } = await query.graph({
+      entity: "product",
+      fields: ["id", "title", "sales_channels.id"],
+      filters: { id: add },
     })
+    const elsewhere = (data as any[]).filter((p) =>
+      (p.sales_channels ?? []).some((sc: any) => sc.id !== req.params.id)
+    )
+    if (elsewhere.length > 0) {
+      return res.status(400).json({
+        type: "invalid_data",
+        message: `Estos productos ya pertenecen a otra marca: ${elsewhere.map((p) => `"${p.title}"`).join(", ")}. Cambia su canal de venta desde la pantalla del producto.`,
+      })
+    }
+    return next()
   }
 }
