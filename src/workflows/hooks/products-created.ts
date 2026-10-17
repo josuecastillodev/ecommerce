@@ -68,7 +68,14 @@ createProductsWorkflow.hooks.productsCreated(
       })
     } catch (e) {
       // La compensación no corre si el propio step falla; deshacer el link de marca a mano.
-      await undoBrandLink(undoData, container)
+      try {
+        await undoBrandLink(undoData, container)
+      } catch (undoErr) {
+        // No tapar la causa real con el error de limpieza.
+        container
+          .resolve(ContainerRegistrationKeys.LOGGER)
+          .error(`No se pudo deshacer el link de marca ${brandId}: ${(undoErr as Error).message}`)
+      }
       throw e
     }
 
