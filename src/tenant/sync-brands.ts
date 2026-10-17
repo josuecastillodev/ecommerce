@@ -1,8 +1,10 @@
 /**
- * Paso 2 del apply: sincroniza las marcas de la config. `slug` es la
- * identidad; el canal se encuentra por el link brand↔sales_channel. Nunca
- * borra marcas: las desactiva (canal deshabilitado, keys revocadas). La
- * apariencia solo se usa al crear (después la edita el cliente en Medusa).
+ * Paso 2 del apply: sincroniza las marcas de la config como sales channels
+ * (spec 2026-10-17). `metadata.brand_slug` es la identidad; la marca default
+ * vive en el canal de `store.default_sales_channel_id` (se adopta el que creó
+ * initial-defaults). Nunca borra marcas: las desactiva (canal deshabilitado,
+ * keys revocadas). La apariencia solo se escribe al crear o adoptar el canal;
+ * después la edita el cliente en Medusa.
  */
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys, Modules } from "@medusajs/framework/utils"
@@ -16,24 +18,25 @@ import {
   revokeApiKeysWorkflow,
   updateApiKeysWorkflow,
   updateSalesChannelsWorkflow,
+  updateStoresWorkflow,
 } from "@medusajs/medusa/core-flows"
-import { BRAND_MODULE } from "../modules/brand"
-import type BrandModuleService from "../modules/brand/service"
+import {
+  BRAND_CHANNEL_FIELDS,
+  BRAND_METADATA_KEYS,
+  brandFromChannel,
+  brandMetadata,
+  type BrandChannel,
+} from "../brand/channel-brand"
 import type { TenantBrandConfig } from "./config-schema"
 import type { BrandApplyResult } from "../workflows/apply-tenant-config"
 
 export type CreatedBrandResources = {
-  brandIds: string[]
   channelIds: string[]
   keyIds: string[]
-}
-
-type ExistingBrand = {
-  id: string
-  slug: string
-  name: string
-  active: boolean
-  sales_channel?: { id: string; name: string; is_disabled: boolean } | null
+  // Estado previo del canal default adoptado, para restaurarlo en rollback.
+  adoptedChannel: BrandChannel | null
+  previousDefaultChannelId: string | null
+  storeId: string | null
 }
 
 type PublishableKey = {
@@ -50,7 +53,13 @@ export async function syncBrands(
   container: MedusaContainer,
   brands: TenantBrandConfig[]
 ): Promise<{ results: BrandApplyResult[]; created: CreatedBrandResources }> {
-  const created: CreatedBrandResources = { brandIds: [], channelIds: [], keyIds: [] }
+  const created: CreatedBrandResources = {
+    channelIds: [],
+    keyIds: [],
+    adoptedChannel: null,
+    previousDefaultChannelId: null,
+    storeId: null,
+  }
   try {
     return await syncBrandsInner(container, brands, created)
   } catch (e) {
@@ -66,17 +75,27 @@ async function syncBrandsInner(
   created: CreatedBrandResources
 ): Promise<{ results: BrandApplyResult[]; created: CreatedBrandResources }> {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const link = container.resolve(ContainerRegistrationKeys.LINK)
-  const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
+  const storeModule = container.resolve(Modules.STORE)
   const stockLocationModule = container.resolve(Modules.STOCK_LOCATION)
 
-  const { data: existingRows } = await query.graph({
-    entity: "brand",
-    fields: ["id", "slug", "name", "active", "sales_channel.id", "sales_channel.name", "sales_channel.is_disabled"],
-  })
-  const existingBySlug = new Map(
-    (existingRows as unknown as ExistingBrand[]).map((b) => [b.slug, b])
-  )
+  const [store] = await storeModule.listStores()
+  const defaultChannelId = store?.default_sales_channel_id
+  if (!store || !defaultChannelId) {
+    throw new Error("La tienda no tiene canal default; los valores iniciales del tenant deben correr antes")
+  }
+  created.storeId = store.id
+
+  const { data: channelRows } = await query.graph({ entity: "sales_channel", fields: BRAND_CHANNEL_FIELDS })
+  const channels = channelRows as unknown as BrandChannel[]
+  const bySlug = new Map<string, BrandChannel>()
+  for (const ch of channels) {
+    const slug = brandFromChannel(ch)?.slug
+    if (!slug) continue
+    if (bySlug.has(slug)) {
+      throw new Error(`Hay dos sales channels con brand_slug "${slug}"; corrígelo antes de aplicar`)
+    }
+    bySlug.set(slug, ch)
+  }
 
   const { data: keyRows } = await query.graph({
     entity: "api_key",
@@ -97,56 +116,63 @@ async function syncBrandsInner(
   }
 
   const results: BrandApplyResult[] = []
+  const channelIdBySlug = new Map<string, string>()
 
   for (const cfg of brands) {
-    let brand = existingBySlug.get(cfg.slug)
+    const existing = bySlug.get(cfg.slug)
+    let channelId: string
 
-    // 1. Marca.
-    if (!brand) {
-      const createdBrand = await brandService.createBrands({
-        slug: cfg.slug,
-        name: cfg.name,
-        active: cfg.active,
-        description: cfg.description,
-        logo_url: cfg.logo_url,
-        primary_color: cfg.primary_color,
-        secondary_color: cfg.secondary_color,
-      })
-      created.brandIds.push(createdBrand.id)
-      brand = { id: createdBrand.id, slug: cfg.slug, name: cfg.name, active: cfg.active, sales_channel: null }
-    } else if (brand.name !== cfg.name || brand.active !== cfg.active) {
-      await brandService.updateBrands({ id: brand.id, name: cfg.name, active: cfg.active })
+    // 1. Sales channel (por brand_slug, nunca por nombre).
+    if (!existing) {
+      const defaultChannel = channels.find((c) => c.id === defaultChannelId)
+      if (cfg.default && defaultChannel && !brandFromChannel(defaultChannel)) {
+        created.adoptedChannel = { ...defaultChannel }
+        await updateSalesChannelsWorkflow(container).run({
+          input: {
+            selector: { id: defaultChannel.id },
+            update: {
+              name: cfg.name,
+              description: cfg.description,
+              is_disabled: !cfg.active,
+              metadata: { ...(defaultChannel.metadata ?? {}), ...brandMetadata(cfg) },
+            },
+          },
+        })
+        channelId = defaultChannel.id
+      } else {
+        const { result } = await createSalesChannelsWorkflow(container).run({
+          input: {
+            salesChannelsData: [
+              {
+                name: cfg.name,
+                description: cfg.description,
+                is_disabled: !cfg.active,
+                metadata: brandMetadata(cfg),
+              } as { name: string }, // CreateSalesChannelDTO no declara metadata aunque el modelo la persiste
+            ],
+          },
+        })
+        channelId = result[0].id
+        created.channelIds.push(channelId)
+      }
+    } else {
+      channelId = existing.id
+      if (existing.name !== cfg.name || existing.is_disabled !== !cfg.active) {
+        await updateSalesChannelsWorkflow(container).run({
+          input: { selector: { id: channelId }, update: { name: cfg.name, is_disabled: !cfg.active } },
+        })
+      }
     }
+    channelIdBySlug.set(cfg.slug, channelId)
 
-    // 2. Sales channel (por link, nunca por nombre).
-    let channelId = brand.sales_channel?.id
-    if (!channelId) {
-      const { result } = await createSalesChannelsWorkflow(container).run({
-        input: { salesChannelsData: [{ name: cfg.name, is_disabled: !cfg.active }] },
-      })
-      channelId = result[0].id
-      created.channelIds.push(channelId)
-      await link.create({
-        [BRAND_MODULE]: { brand_id: brand.id },
-        [Modules.SALES_CHANNEL]: { sales_channel_id: channelId },
-      })
-    } else if (
-      brand.sales_channel!.name !== cfg.name ||
-      brand.sales_channel!.is_disabled !== !cfg.active
-    ) {
-      await updateSalesChannelsWorkflow(container).run({
-        input: { selector: { id: channelId }, update: { name: cfg.name, is_disabled: !cfg.active } },
-      })
-    }
-
-    // 3. Canal visible en todos los almacenes del tenant.
+    // 2. Canal visible en todos los almacenes del tenant.
     for (const locationId of stockLocationIds) {
       await linkSalesChannelsToStockLocationWorkflow(container).run({
         input: { id: locationId, add: [channelId] },
       })
     }
 
-    // 4. Publishable key.
+    // 3. Publishable key.
     const live = liveKeysOf(channelId)
     let publishableKey: string | null = null
     if (cfg.active) {
@@ -179,33 +205,56 @@ async function syncBrandsInner(
     })
   }
 
-  // 5. Marcas en la DB que ya no están en la config: desactivar.
+  // 4. La marca default es el canal default del store.
+  const defaultSlug = brands.find((b) => b.default)!.slug
+  const wantedDefaultId = channelIdBySlug.get(defaultSlug)!
+  if (wantedDefaultId !== defaultChannelId) {
+    created.previousDefaultChannelId = defaultChannelId
+    await updateStoresWorkflow(container).run({
+      input: { selector: { id: store.id }, update: { default_sales_channel_id: wantedDefaultId } },
+    })
+  }
+
+  // 5. Canales de marca que ya no están en la config: desactivar.
   const configSlugs = new Set(brands.map((b) => b.slug))
-  for (const brand of existingBySlug.values()) {
-    if (configSlugs.has(brand.slug)) continue
-    if (brand.active) {
-      await brandService.updateBrands({ id: brand.id, active: false })
+  for (const [slug, ch] of bySlug) {
+    if (configSlugs.has(slug)) continue
+    if (!ch.is_disabled) {
+      await updateSalesChannelsWorkflow(container).run({
+        input: { selector: { id: ch.id }, update: { is_disabled: true } },
+      })
     }
-    const channelId = brand.sales_channel?.id
-    if (channelId) {
-      if (!brand.sales_channel!.is_disabled) {
-        await updateSalesChannelsWorkflow(container).run({
-          input: { selector: { id: channelId }, update: { is_disabled: true } },
-        })
-      }
-      await revokeKeys(liveKeysOf(channelId).map((k) => k.id))
-    }
+    await revokeKeys(liveKeysOf(ch.id).map((k) => k.id))
   }
 
   return { results, created }
 }
 
-/** Compensación del paso 2: borra lo que este apply creó. */
+/** Compensación del paso 2: deshace lo que este apply creó o adoptó. */
 export async function undoCreatedBrands(
   container: MedusaContainer,
   created: CreatedBrandResources
 ) {
-  const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
+  // Primero el store: Medusa no deja borrar el canal default.
+  if (created.previousDefaultChannelId && created.storeId) {
+    await updateStoresWorkflow(container).run({
+      input: {
+        selector: { id: created.storeId },
+        update: { default_sales_channel_id: created.previousDefaultChannelId },
+      },
+    })
+  }
+  if (created.adoptedChannel) {
+    const { id, name, description, is_disabled, metadata } = created.adoptedChannel
+    // Vaciar las claves brand_* sirve tanto si Medusa reemplaza la metadata como si la fusiona.
+    const clearedBrandKeys = Object.fromEntries(Object.values(BRAND_METADATA_KEYS).map((k) => [k, ""]))
+    await updateSalesChannelsWorkflow(container).run({
+      input: {
+        selector: { id },
+        update: { name, description, is_disabled, metadata: { ...(metadata ?? {}), ...clearedBrandKeys } },
+      },
+    })
+  }
   if (created.keyIds.length > 0) {
     await revokeApiKeysWorkflow(container).run({
       input: { selector: { id: created.keyIds }, revoke: { revoked_by: "tenant-apply-rollback" } },
@@ -214,8 +263,5 @@ export async function undoCreatedBrands(
   }
   if (created.channelIds.length > 0) {
     await deleteSalesChannelsWorkflow(container).run({ input: { ids: created.channelIds } })
-  }
-  if (created.brandIds.length > 0) {
-    await brandService.deleteBrands(created.brandIds)
   }
 }
