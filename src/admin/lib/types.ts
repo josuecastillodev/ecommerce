@@ -1,24 +1,11 @@
 /**
- * Admin Types for Multi-Brand Support
+ * Admin Types for Multi-Brand Support (marca = sales channel)
  */
 
-export interface Brand {
-  id: string
-  name: string
-  slug: string
-  logo_url: string | null
-  primary_color: string
-  secondary_color: string
-  description: string | null
-  active: boolean
-  metadata: Record<string, unknown> | null
-  created_at: string
-  updated_at: string
-}
-
 export interface BrandStats {
-  brand_id: string
+  sales_channel_id: string
   brand_name: string
+  brand_color: string
   total_sales: number
   orders_today: number
   orders_pending: number
@@ -34,14 +21,3 @@ export interface DashboardMetrics {
   low_stock_products: number
   by_brand: BrandStats[]
 }
-
-export interface BrandContextValue {
-  selectedBrand: Brand | null
-  brands: Brand[]
-  isLoading: boolean
-  error: string | null
-  selectBrand: (brand: Brand | null) => void
-  refreshBrands: () => Promise<void>
-}
-
-export const BRAND_STORAGE_KEY = "medusa_admin_selected_brand"

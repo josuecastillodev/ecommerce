@@ -7,30 +7,12 @@ import {
   validateCartCreateBrand,
   guardSalesChannelProducts,
 } from "../utils/brand-middleware"
+import { guardSalesChannelCreate, guardSalesChannelDelete, guardSalesChannelUpdate } from "../utils/sales-channel-guard"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
 // second argument. These custom routes run their own query.graph with explicit
 // fields, so a minimal list config is all that's needed to avoid the crash.
 const LIST_QUERY_CONFIG = { isList: true } as const
-
-// Brand validation schemas. Estructura de marca (nombre, slug, activa) la
-// manda el control plane vía /internal/tenant/apply; en el admin solo se
-// edita la apariencia (spec 2026-10-16).
-const updateBrandAppearanceSchema = z
-  .object({
-    logo_url: z.string().url().optional().nullable(),
-    primary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
-    secondary_color: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Must be a valid hex color").optional(),
-    description: z.string().optional().nullable(),
-  })
-  .strict()
-
-const listBrandsQuerySchema = z.object({
-  offset: z.coerce.number().optional(),
-  limit: z.coerce.number().optional(),
-  active: z.enum(["true", "false"]).optional(),
-  name: z.string().optional(),
-})
 
 // Category validation schemas
 const createCategorySchema = z.object({
@@ -76,24 +58,6 @@ const brandPreferencesSchema = z.object({
 
 export default defineMiddlewares({
   routes: [
-    // ==================
-    // Admin Brand Routes
-    // ==================
-    {
-      matcher: "/admin/brands",
-      method: "GET",
-      middlewares: [
-        validateAndTransformQuery(listBrandsQuerySchema, LIST_QUERY_CONFIG),
-      ],
-    },
-    {
-      matcher: "/admin/brands/:id",
-      method: "POST",
-      middlewares: [
-        validateAndTransformBody(updateBrandAppearanceSchema),
-      ],
-    },
-
     // ======================
     // Admin Category Routes
     // ======================
@@ -195,6 +159,9 @@ export default defineMiddlewares({
       method: "POST",
       middlewares: [guardSalesChannelProducts()],
     },
+    { matcher: "/admin/sales-channels", method: "POST", middlewares: [guardSalesChannelCreate()] },
+    { matcher: "/admin/sales-channels/:id", method: "POST", middlewares: [guardSalesChannelUpdate()] },
+    { matcher: "/admin/sales-channels/:id", method: "DELETE", middlewares: [guardSalesChannelDelete()] },
 
     // ==================
     // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
