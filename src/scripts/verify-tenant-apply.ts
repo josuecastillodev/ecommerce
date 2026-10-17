@@ -11,6 +11,7 @@ import { TenantConfigSchema, type TenantConfig } from "../tenant/config-schema"
 import { BOOTSTRAP_MARKER } from "../tenant/initial-defaults"
 import { checkTenancyInvariants } from "../tenant/invariants"
 import { runTenantApply } from "../tenant/run-apply"
+import { syncBrands, undoCreatedBrands } from "../tenant/sync-brands"
 import { brandFromChannel, BRAND_CHANNEL_FIELDS, type BrandChannel } from "../brand/channel-brand"
 
 function loadDemo(): TenantConfig {
@@ -154,6 +155,66 @@ export default async function verifyTenantApply({ container }: ExecArgs) {
   const [store6b] = await storeModule.listStores()
   assert(store6b.default_sales_channel_id === urbanAfter.sales_channel_id, "no regresó la default a Urban Street")
   logger.info("[verify-tenant-apply] OK escenario 6: mover la marca default")
+
+  // Escenario 7: una key de marca enlazada a otro canal se repara en el apply.
+  const { linkSalesChannelsToApiKeyWorkflow, revokeApiKeysWorkflow, updateSalesChannelsWorkflow: updateChannels } =
+    await import("@medusajs/medusa/core-flows")
+  const apiKeyModule = container.resolve(Modules.API_KEY) as any
+  const urbanId = (await channelBySlug(container, urban.slug))!.id
+  const classicId = (await channelBySlug(container, classic.slug))!.id
+  const linkedChannelIds = async (keyId: string) => {
+    const { data } = await query.graph({ entity: "api_key", fields: ["id", "sales_channels.id"], filters: { id: keyId } })
+    return ((data[0] as any).sales_channels as { id: string }[]).map((c) => c.id)
+  }
+  const [urbanKey] = await apiKeyModule.listApiKeys({ token: (await runTenantApply(container, demo)).brands.find((b) => b.slug === urban.slug)!.publishable_key })
+  await linkSalesChannelsToApiKeyWorkflow(container).run({ input: { id: urbanKey.id, add: [classicId] } })
+  assert((await linkedChannelIds(urbanKey.id)).length === 2, "no se pudo preparar la key con dos canales")
+  await runTenantApply(container, demo)
+  const repaired = await linkedChannelIds(urbanKey.id)
+  assert(repaired.length === 1 && repaired[0] === urbanId, `key de Urban sin reparar: ${repaired}`)
+  await assertInvariants(container, "escenario 7")
+  logger.info("[verify-tenant-apply] OK escenario 7: key re-enlazada se repara")
+
+  // Escenario 8: rollback. Se invoca syncBrands/undoCreatedBrands directo sobre el estado
+  // del demo y se vuelve a aplicar el demo al final de cada caso.
+  // 8a: mover la default y deshacer restaura store.default_sales_channel_id.
+  const moved = await syncBrands(container, s6.brands)
+  assert(moved.created.previousDefaultChannelId === urbanId, "8a: no registró la default previa")
+  const [storeMoved] = await storeModule.listStores()
+  assert(storeMoved.default_sales_channel_id === classicId, "8a: la default no se movió")
+  await undoCreatedBrands(container, moved.created)
+  const [storeUndone] = await storeModule.listStores()
+  assert(storeUndone.default_sales_channel_id === urbanId, "8a: undo no restauró la default")
+  await assertInvariants(container, "escenario 8a")
+  logger.info("[verify-tenant-apply] OK escenario 8a: undo restaura la default")
+
+  // 8b: adopción + canal y key nuevos; deshacer deja todo como antes del apply.
+  const PREV_NAME = "Canal previo"
+  await updateChannels(container).run({
+    input: { selector: { id: urbanId }, update: { name: PREV_NAME, metadata: { brand_slug: "", brand_logo_url: "", brand_primary_color: "", brand_secondary_color: "" } } },
+  })
+  const urbanLive = await apiKeyModule.listApiKeys({ type: "publishable", revoked_at: null })
+  const urbanKeyIds = (await Promise.all(urbanLive.map(async (k: any) => ((await linkedChannelIds(k.id)).includes(urbanId) ? k.id : null)))).filter(Boolean)
+  await revokeApiKeysWorkflow(container).run({ input: { selector: { id: urbanKeyIds }, revoke: { revoked_by: "verify" } } })
+  assert(!(await channelBySlug(container, urban.slug)), "8b: el canal default debe quedar sin marca")
+  const keysBefore = (await counts(container)).publishableKeys
+  const channelsBefore = (await counts(container)).salesChannels
+  const withNew = await syncBrands(container, [...demo.brands, { ...urban, slug: "undo-kids", name: "Undo Kids", default: false }])
+  assert(withNew.created.adoptedChannel?.id === urbanId, "8b: no adoptó el canal default")
+  assert(withNew.created.channelIds.length === 1 && withNew.created.keyIds.length >= 2, "8b: no creó canal/keys")
+  await undoCreatedBrands(container, withNew.created)
+  const [store8] = await storeModule.listStores()
+  assert(store8.default_sales_channel_id === urbanId, "8b: cambió la default")
+  const adopted = (await query.graph({ entity: "sales_channel", fields: BRAND_CHANNEL_FIELDS, filters: { id: urbanId } })).data[0] as unknown as BrandChannel
+  assert(brandFromChannel(adopted) === null, "8b: el canal adoptado conserva brand_*")
+  assert(adopted.name === PREV_NAME, `8b: nombre no restaurado: ${adopted.name}`)
+  assert(!(await channelBySlug(container, "undo-kids")), "8b: el canal creado sigue ahí")
+  const after8 = await counts(container)
+  assert(after8.salesChannels === channelsBefore, `8b: canales ${channelsBefore} -> ${after8.salesChannels}`)
+  assert(after8.publishableKeys === keysBefore, `8b: keys ${keysBefore} -> ${after8.publishableKeys}`)
+  logger.info("[verify-tenant-apply] OK escenario 8b: undo restaura el canal adoptado")
+  await runTenantApply(container, demo)
+  await assertInvariants(container, "tras escenario 8")
 
   logger.info("[verify-tenant-apply] Todos los escenarios pasan.")
 }

@@ -9,7 +9,7 @@ import { resolveCallerBrand } from "../../../utils/brand-middleware"
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const brand = await resolveCallerBrand(req)
   if (!brand) {
-    res.status(404).json({ message: "Brand not found" })
+    res.status(404).json({ message: "Marca no encontrada" })
     return
   }
   const { active: _active, ...publicBrand } = brand

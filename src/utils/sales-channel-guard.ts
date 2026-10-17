@@ -56,3 +56,24 @@ export function guardSalesChannelUpdate() {
     return next()
   }
 }
+
+/**
+ * POST /admin/api-keys/:id/sales-channels: una publishable key enlazada a un
+ * canal de marca no se re-enlaza desde el admin (rompería el aislamiento entre
+ * marcas). El apply la repara si aun así ocurre.
+ */
+export function guardApiKeySalesChannels() {
+  return async (req: MedusaRequest, res: MedusaResponse, next: MedusaNextFunction) => {
+    const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+    const { data } = await query.graph({
+      entity: "api_key",
+      fields: ["id", "type", "sales_channels.id", "sales_channels.metadata"],
+      filters: { id: req.params.id },
+    })
+    const key = data[0] as any
+    if (!key) return next() // que el handler nativo responda 404
+    const linkedToBrand = (key.sales_channels ?? []).some((sc: any) => sc?.metadata?.[BRAND_METADATA_KEYS.slug])
+    if (key.type === "publishable" && linkedToBrand) return reject(res, OWNED_BY_CONTROL_PLANE)
+    return next()
+  }
+}

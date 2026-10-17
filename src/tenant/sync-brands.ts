@@ -64,7 +64,11 @@ export async function syncBrands(
     return await syncBrandsInner(container, brands, created)
   } catch (e) {
     // Si el step lanza, Medusa no recibe `created`; deshacer aquí lo ya creado.
-    await undoCreatedBrands(container, created)
+    try {
+      await undoCreatedBrands(container, created)
+    } catch (undoError) {
+      container.resolve(ContainerRegistrationKeys.LOGGER).error("Falló el rollback de marcas", undoError as Error)
+    }
     throw e
   }
 }
@@ -176,7 +180,8 @@ async function syncBrandsInner(
     const live = liveKeysOf(channelId)
     let publishableKey: string | null = null
     if (cfg.active) {
-      let key = live[0]
+      // Si una key quedó enlazada a varias marcas, la de título propio manda.
+      let key = live.find((k) => k.title === keyTitle(cfg.name)) ?? live[0]
       if (!key) {
         const { result } = await createApiKeysWorkflow(container).run({
           input: { api_keys: [{ title: keyTitle(cfg.name), type: "publishable", created_by: "tenant-apply" }] },
@@ -187,10 +192,18 @@ async function syncBrandsInner(
           input: { id: newKey.id, add: [channelId] },
         })
         key = { id: newKey.id, title: newKey.title, token: newKey.token, revoked_at: null }
-      } else if (key.title !== keyTitle(cfg.name)) {
-        await updateApiKeysWorkflow(container).run({
-          input: { selector: { id: key.id }, update: { title: keyTitle(cfg.name) } },
-        })
+      } else {
+        // Una key de marca solo ve su canal; repara si alguien enlazó otra marca desde el admin.
+        const otherIds = (key.sales_channels ?? []).map((sc) => sc.id).filter((id) => id !== channelId)
+        if (otherIds.length > 0) {
+          await linkSalesChannelsToApiKeyWorkflow(container).run({ input: { id: key.id, remove: otherIds } })
+          key.sales_channels = [{ id: channelId }] // para que otra marca no reclame esta key
+        }
+        if (key.title !== keyTitle(cfg.name)) {
+          await updateApiKeysWorkflow(container).run({
+            input: { selector: { id: key.id }, update: { title: keyTitle(cfg.name) } },
+          })
+        }
       }
       publishableKey = key.token
     } else {

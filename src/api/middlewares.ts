@@ -7,7 +7,12 @@ import {
   validateCartCreateBrand,
   guardSalesChannelProducts,
 } from "../utils/brand-middleware"
-import { guardSalesChannelCreate, guardSalesChannelDelete, guardSalesChannelUpdate } from "../utils/sales-channel-guard"
+import {
+  guardApiKeySalesChannels,
+  guardSalesChannelCreate,
+  guardSalesChannelDelete,
+  guardSalesChannelUpdate,
+} from "../utils/sales-channel-guard"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
 // second argument. These custom routes run their own query.graph with explicit
@@ -162,6 +167,7 @@ export default defineMiddlewares({
     { matcher: "/admin/sales-channels", method: "POST", middlewares: [guardSalesChannelCreate()] },
     { matcher: "/admin/sales-channels/:id", method: "POST", middlewares: [guardSalesChannelUpdate()] },
     { matcher: "/admin/sales-channels/:id", method: "DELETE", middlewares: [guardSalesChannelDelete()] },
+    { matcher: "/admin/api-keys/:id/sales-channels", method: "POST", middlewares: [guardApiKeySalesChannels()] },
 
     // ==================
     // Store Cart Routes (brand guard — Medusa 2.20 no valida el sales channel
