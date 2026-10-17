@@ -50,8 +50,8 @@ export function guardSalesChannelUpdate() {
           return reject(res, `${key} debe ser un color hex #RRGGBB`)
       }
       const logo = md[BRAND_METADATA_KEYS.logo_url]
-      if (logo !== undefined && logo !== "" && !(typeof logo === "string" && URL.canParse(logo)))
-        return reject(res, `${BRAND_METADATA_KEYS.logo_url} debe ser una URL`)
+      if (logo !== undefined && logo !== "" && !(typeof logo === "string" && URL.canParse(logo) && ["http:", "https:"].includes(new URL(logo).protocol)))
+        return reject(res, `${BRAND_METADATA_KEYS.logo_url} debe ser una URL http(s)`)
     }
     return next()
   }
