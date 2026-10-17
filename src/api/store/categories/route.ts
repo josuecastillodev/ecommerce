@@ -11,7 +11,7 @@ import { resolveCallerBrand } from "../../../utils/brand-middleware"
 
 // GET /store/categories - Categorías de la marca del caller (+ globales).
 // Scopeado: la marca se deriva del sales channel de la publishable key, igual
-// que /store/brands/:slug/products y /store/categories/:slug/products. Un
+// que /store/brand y /store/categories/:slug/products. Un
 // `sales_channel_id` del query string se ignora.
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const categoryService: CategoryModuleService = req.scope.resolve(CATEGORY_MODULE)

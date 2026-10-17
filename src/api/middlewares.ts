@@ -123,8 +123,8 @@ export default defineMiddlewares({
     // =======================
     // Store Customer Routes (brand layer over Medusa's native auth)
     // =======================
-    // Enforce that the authenticated customer belongs to the brand in the
-    // X-Brand-Id header on every authenticated storefront surface.
+    // Enforce that the authenticated customer belongs to the brand (sales
+    // channel) of the publishable key on every authenticated storefront surface.
     {
       matcher: "/store/customers/me",
       middlewares: [validateCustomerBrand()],
