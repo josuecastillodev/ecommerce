@@ -174,7 +174,7 @@ NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_...   # la de "Urban Street Storefront" o 
 NEXT_PUBLIC_BRAND_SLUG=urban-street          # o classic-threads
 ```
 
-Con eso, `/store/products` queda aislados por
+Con eso, `/store/products` queda aislado por
 marca de forma nativa (Medusa filtra por el sales channel de la key). `/store/carts`
 y el checkout quedan aislados mediante un middleware de validación de marca
 (`validateCartLineItemBrand`), porque Medusa 2.20 no valida nativamente que la

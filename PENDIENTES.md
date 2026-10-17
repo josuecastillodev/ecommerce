@@ -35,7 +35,6 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 | **Tenencia — `/store/categories` y `X-Brand-Id` derivado** | — | Nuevo helper `resolveCallerBrand(req)` en `brand-middleware.ts` (extraído del patrón ya usado en `/store/brands/:slug/products` y `/store/categories/:slug/products`, que ahora lo reusan): resuelve la marca del caller desde `sales_channel` de la publishable key. `/store/categories` (lista) lo adopta — ya no confía en el `brand_id` del query string, sin key válida → 400, mismo soporte de `tree`/`include_global` que antes. Nuevo `resolveRequestBrandId(req)`: intenta primero la marca de la pub key y, si no resuelve, cae a `extractBrandId` (header/query/body); usado por `validateCustomerBrand`, que ya no exige el header `X-Brand-Id` cuando la publishable key alcanza para derivar la marca (la pub key gana sobre un header enviado a mano — más difícil de falsificar). Verificado con curl: `/store/categories` con `PK_URBAN`/`PK_CLASSIC` → cada uno solo ve su marca + globales (8/9 categorías, incluye los 6 globales compartidos); `brand_id` falso en el query → ignorado; sin key → 400; `/store/customers/me` autenticado con `PK_URBAN` y **sin** header → 200; con `PK_CLASSIC` (marca ajena) sin header → 403; con `PK_URBAN` + `X-Brand-Id` falso → 200 (el header se ignora). Regresión en `/store/brands/:slug/products` y `/store/categories/:slug/products` sin cambios. `pnpm run build` → 0 errores. |
 | **Carrito y marca — cierre de fugas** | — | Dos huecos del guard de carrito cerrados. (1) `validateCartLineItemBrand` ya no hace `next()` a ciegas cuando el carrito no tiene `sales_channel_id`: sin canal resuelto exige que todas las variantes (entrante + items existentes) compartan `product.brand.id`; si abarcan >1 marca → `403`. (2) Nuevo middleware `validateCartCreateBrand`, cableado en `POST /store/carts`, valida los `items[]` inline antes de crear el carrito — canal objetivo = `body.sales_channel_id` o el de la publishable key; mezcla de marcas → `403`. Helper compartido `resolveVariantBrandInfo` + `checkVariantsAgainstChannel` (fail-closed si el lookup de variantes queda corto). Verificado con curl: `POST /store/carts` con items mixtos → 403, una marca → 200, sin items → 200; regresión de `/line-items` y `/complete` + checkout de una marca → orden, sin cambios; carrito con canal nulo + item de otra marca → 403. `pnpm run build` → 0 errores. |
 | **Brand como tenant (sales channel por marca)** | — | Cada marca tiene su sales channel (`Urban Street` / `Classic Threads`) y su publishable key (`<Marca> Storefront`), creados por `seed.ts`. Link nuevo `brand ↔ sales_channel` (`src/links/brand-sales-channel.ts`). `create-product-with-brand` linkea cada producto al canal de su marca. Con eso `/store/products` y `/store/brands/:slug/products` quedan aislados por marca de forma nativa (Medusa filtra por el canal de la pub key). Para el carrito, un middleware (`validateCartLineItemBrand`) rechaza (`403`) agregar o completar un carrito con productos de más de una marca — Medusa 2.20 no lo valida nativamente. Se borraron `/store/products` y `/store/products/[id]` custom (el nativo ya scopea). `/store/brands/:slug/products` ahora exige que el slug sea la marca del canal del request. La capa `customer_brand` + `X-Brand-Id` para clientes/pedidos no cambia. |
-
 | **Marca = sales channel nativo** | — | El módulo `brand` y sus links se eliminaron; cada sales channel es una marca (`metadata.brand_*`); el canal default del store es la marca default (`default: true` en la config); todo producto en exactamente un canal (hooks nativos `productsCreated`/`productsUpdated` + guarda de `/admin/sales-channels/:id/products`); el formulario nativo de crear producto vuelve a funcionar; `/store/brands*` → `GET /store/brand`; admin de marcas → widget de apariencia en la pantalla nativa del canal + guarda de nombre/estado/slug; `customer_brand` y `category` usan `sales_channel_id`. Spec y plan: `docs/superpowers/specs|plans/2026-10-17-brand-as-sales-channel*`. |
 ---
 
@@ -57,8 +56,8 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
 - `/store/categories/:slug/products` y `/store/categories` (lista) se scopean al
   canal de la publishable key — **resuelto**, ver fila "Tenencia — `/store/categories`
   y `X-Brand-Id` derivado" en ✅ Resuelto.
-- `X-Brand-Id` en `/store/customers/me*` y `/store/orders*` ahora se deriva del
-  sales channel de la publishable key — **resuelto**, misma fila de arriba.
+- En `/store/customers/me*` y `/store/orders*` la marca del cliente se valida
+  contra el sales channel de la publishable key — **resuelto**, misma fila de arriba.
 - No hay admin user scopeado por marca: el admin ve todos los canales (marcas).
 - Almacén único (`Almacén CDMX`) compartido entre los sales channels de las dos
   marcas; si se quiere inventario separado, un stock location por marca.
@@ -73,6 +72,9 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   `sales_channel_id` sin validar; `POST /store/carts` con `items[]` inline naciendo
   mixto) están **resueltos** — ver fila "Carrito y marca — cierre de fugas" en la
   tabla de ✅ Resuelto.
+- Fase 2 del principio "todo nativo": cambiar el módulo `category` por product categories nativas y `product-extension` (SKU, tallas) por variantes/opciones nativas.
+- `customer-created` confía en el `metadata.sales_channel_id` que manda el storefront al registrar; derivarlo de la publishable key del registro.
+- Contrato con el control plane: `brands[].default` (exactamente una). Reflejarlo en el sub-proyecto 2.
 
 ### 2. Follow-ups del admin dashboard (derivados del review de PR #7)
 
@@ -89,9 +91,6 @@ están mergeados a `main`. Este documento resume qué está resuelto y qué falt
   Revisar contra `fulfillment_status`/`payment_status` cuando haya pedidos
   sembrados.
 
-- Fase 2 del principio "todo nativo": cambiar el módulo `category` por product categories nativas y `product-extension` (SKU, tallas) por variantes/opciones nativas.
-- `customer-created` confía en el `metadata.sales_channel_id` que manda el storefront al registrar; derivarlo de la publishable key del registro.
-- Contrato con el control plane: `brands[].default` (exactamente una). Reflejarlo en el sub-proyecto 2.
 
 ### 3. Tenancy (sub-proyectos 2-4)
 
@@ -163,10 +162,19 @@ Stripe. Para probar `stripe`/`stripe-oxxo` en vez de `pp_system_default` hace
 falta un `STRIPE_API_KEY` de test real en `.env`.
 
 ```bash
-PK="<publishable key del seed>"
+PK="pk_..."                              # publishable key del seed
+SC_URBAN="<id del sales channel de la marca>"  # GET /admin/sales-channels
+ADMIN_TOKEN="<token de admin>"
 REGION="<id de la región México>"       # select id from region
 VARIANT="<id de una variante>"          # select id from product_variant limit 1
 SHIP_OPT="<id de un shipping option>"   # select id from shipping_option
+
+# Registro de cliente: la marca se manda en metadata.sales_channel_id
+T=$(curl -s http://localhost:9000/auth/customer/emailpass/register \
+  -H 'content-type: application/json' -d '{"email":"buyer@test.mx","password":"Password123"}' | jq -r .token)
+curl -s http://localhost:9000/store/customers -H "authorization: Bearer $T" -H "x-publishable-api-key: $PK" \
+  -H 'content-type: application/json' \
+  -d "{\"email\":\"buyer@test.mx\",\"metadata\":{\"sales_channel_id\":\"$SC_URBAN\"}}" > /dev/null
 
 CART=$(curl -s -X POST http://localhost:9000/store/carts \
   -H 'content-type: application/json' -H "x-publishable-api-key: $PK" \
@@ -195,6 +203,10 @@ curl -s -X POST http://localhost:9000/store/payment-collections/$PC/payment-sess
 # → { "type": "order", "order": { "status": "pending", ... } }
 curl -s -X POST http://localhost:9000/store/carts/$CART/complete \
   -H 'content-type: application/json' -H "x-publishable-api-key: $PK" | jq .
+
+# la orden quedó en el canal de la marca → $SC_URBAN
+curl -s "http://localhost:9000/admin/orders?fields=sales_channel_id&limit=1" \
+  -H "authorization: Bearer $ADMIN_TOKEN" | jq -r '.orders[0].sales_channel_id'
 ```
 
 ### Smoke test de Stripe (tarjetas) y OXXO — con llaves de test reales
