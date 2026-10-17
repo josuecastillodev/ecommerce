@@ -39,16 +39,16 @@ const createCategorySchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   image_url: z.string().url().nullable().optional(),
   parent_id: z.string().nullable().optional(),
-  brand_id: z.string().nullable().optional(),
+  sales_channel_id: z.string().nullable().optional(),
   position: z.number().int().min(0).optional(),
   is_active: z.boolean().default(true),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
-const updateCategorySchema = createCategorySchema.partial().omit({ brand_id: true })
+const updateCategorySchema = createCategorySchema.partial().omit({ sales_channel_id: true })
 
 const listCategoriesQuerySchema = z.object({
-  brand_id: z.string().optional(),
+  sales_channel_id: z.string().optional(),
   parent_id: z.string().nullable().optional(),
   is_active: z.enum(["true", "false", "all"]).optional(),
   search: z.string().optional(),
@@ -180,7 +180,6 @@ export default defineMiddlewares({
       middlewares: [
         validateAndTransformQuery(
           z.object({
-            brand_id: z.string().optional(),
             offset: z.coerce.number().min(0).default(0),
             limit: z.coerce.number().min(1).max(100).default(20),
             include_subcategories: z.enum(["true", "false"]).default("true"),
