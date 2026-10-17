@@ -2,7 +2,13 @@ import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery 
 import { z } from "zod"
 import { AVAILABLE_SIZES } from "../modules/product-extension"
 import { requireControlPlaneToken } from "../utils/control-plane-auth"
-import { validateCustomerBrand, validateCartLineItemBrand, validateCartCreateBrand } from "../utils/brand-middleware"
+import {
+  validateCustomerBrand,
+  validateCartLineItemBrand,
+  validateCartCreateBrand,
+  requireProductBrand,
+  rejectUnbrandedProductCreate,
+} from "../utils/brand-middleware"
 
 // Medusa's validateAndTransformQuery requires a queryConfig object as its
 // second argument. These custom routes run their own query.graph with explicit
@@ -307,6 +313,32 @@ export default defineMiddlewares({
       matcher: "/store/customers/me/brand",
       method: "POST",
       middlewares: [validateAndTransformBody(brandPreferencesSchema)],
+    },
+
+    // ==================
+    // Admin native product creation (brand required — linked by the
+    // productsCreated hook in src/workflows/hooks/products-created.ts)
+    // ==================
+    {
+      matcher: "/admin/products",
+      method: "POST",
+      additionalDataValidator: { brand_id: z.string().min(1) },
+      middlewares: [requireProductBrand()],
+    },
+    {
+      matcher: "/admin/products/batch",
+      method: "POST",
+      middlewares: [rejectUnbrandedProductCreate({ batch: true })],
+    },
+    {
+      matcher: "/admin/products/import",
+      method: "POST",
+      middlewares: [rejectUnbrandedProductCreate()],
+    },
+    {
+      matcher: "/admin/products/imports",
+      method: "POST",
+      middlewares: [rejectUnbrandedProductCreate()],
     },
 
     // ==================

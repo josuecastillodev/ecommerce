@@ -20,7 +20,7 @@ Plataforma de e-commerce multi-marca construida con Medusa.js 2.0.
 
 ## Requisitos
 
-- Node.js 20 o 22 (ver `.nvmrc`)
+- Node.js 20.19+ o 22.12+ (se usa 24, ver `.nvmrc`) y pnpm 10.28.2 (fijado en `packageManager`)
 - Docker y Docker Compose
 - pnpm
 
