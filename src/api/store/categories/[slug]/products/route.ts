@@ -20,7 +20,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   } = req.query
 
   // Scope to the caller's brand, derived from the publishable key's sales
-  // channel(s). A client-supplied `brand_id` query param is ignored — a
+  // channel(s). A client-supplied `sales_channel_id` query param is ignored — a
   // storefront only ever sees its own brand's catalog.
   const callerBrand = await resolveCallerBrand(req)
   if (!callerBrand) {
@@ -28,10 +28,10 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     return
   }
 
-  const brand_id = callerBrand.id
+  const sales_channel_id = callerBrand.sales_channel_id
 
   // Find category by slug
-  let category = await categoryService.findBySlug(slug, brand_id as string)
+  let category = await categoryService.findBySlug(slug, sales_channel_id)
 
   if (!category) {
     category = await categoryService.findBySlug(slug, null)
@@ -54,7 +54,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const filters: Record<string, unknown> = {
     status: "published",
     category: { id: categoryIds },
-    brand: { id: brand_id },
+    sales_channels: { id: sales_channel_id },
   }
 
   // Query products
@@ -73,7 +73,6 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       "variants.*",
       "variants.prices.*",
       "variants.options.*",
-      "brand.*",
       "category.*",
     ],
     filters,

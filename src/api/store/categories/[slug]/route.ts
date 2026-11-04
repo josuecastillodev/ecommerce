@@ -6,20 +6,20 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { CATEGORY_MODULE } from "../../../../modules/category"
 import type CategoryModuleService from "../../../../modules/category/service"
+import { resolveCallerBrand } from "../../../../utils/brand-middleware"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const categoryService: CategoryModuleService = req.scope.resolve(CATEGORY_MODULE)
   const { slug } = req.params
-  const { brand_id } = req.query
 
-  // First try to find brand-specific category if brand_id provided
-  let category = null
-
-  if (brand_id) {
-    category = await categoryService.findBySlug(slug, brand_id as string)
+  const callerBrand = await resolveCallerBrand(req)
+  if (!callerBrand) {
+    res.status(400).json({ message: "Missing publishable API key context" })
+    return
   }
 
-  // If not found or no brand_id, try global category
+  // Primero la categoría de la marca; si no, la global.
+  let category = await categoryService.findBySlug(slug, callerBrand.sales_channel_id)
   if (!category) {
     category = await categoryService.findBySlug(slug, null)
   }

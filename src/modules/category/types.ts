@@ -10,7 +10,7 @@ export interface CategoryDTO {
   description: string | null
   image_url: string | null
   parent_id: string | null
-  brand_id: string | null
+  sales_channel_id: string | null
   position: number
   is_active: boolean
   metadata: Record<string, unknown> | null
@@ -28,7 +28,7 @@ export interface CreateCategoryInput {
   description?: string | null
   image_url?: string | null
   parent_id?: string | null
-  brand_id?: string | null
+  sales_channel_id?: string | null
   position?: number
   is_active?: boolean
   metadata?: Record<string, unknown> | null
@@ -47,7 +47,7 @@ export interface UpdateCategoryInput {
 }
 
 export interface CategoryFilters {
-  brand_id?: string | null
+  sales_channel_id?: string | null
   parent_id?: string | null
   is_active?: boolean
   slug?: string

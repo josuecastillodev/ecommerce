@@ -19,10 +19,6 @@ export default defineConfig({
     backendUrl: process.env.MEDUSA_BACKEND_URL || "http://localhost:9000",
   },
   modules: [
-    // Custom Brand module
-    {
-      resolve: "./src/modules/brand",
-    },
     // Custom Category module
     {
       resolve: "./src/modules/category",

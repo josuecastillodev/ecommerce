@@ -12,10 +12,10 @@ export class SKUService {
    * Example: urban-street-classic-tee-M-negro
    */
   static generate(input: SKUGenerationInput): string {
-    const { brand_slug, product_slug, size, color_name } = input
+    const { sku_prefix, product_slug, size, color_name } = input
 
     // Normalize all parts to lowercase and remove special characters
-    const normalizedBrand = this.normalizeSlug(brand_slug)
+    const normalizedBrand = this.normalizeSlug(sku_prefix)
     const normalizedProduct = this.normalizeSlug(product_slug)
     const normalizedSize = size.toUpperCase()
     const normalizedColor = this.normalizeSlug(color_name)
@@ -33,7 +33,7 @@ export class SKUService {
     colorName: string
   ): string {
     return this.generate({
-      brand_slug: brandSlug,
+      sku_prefix: brandSlug,
       product_slug: productSlug,
       size: size as SKUGenerationInput["size"],
       color_name: colorName,

@@ -8,20 +8,17 @@ import { readFileSync } from "fs"
 import path from "path"
 import { TenantConfigSchema } from "../tenant/config-schema"
 import { runTenantApply } from "../tenant/run-apply"
-import { BRAND_MODULE } from "../modules/brand"
 import { CATEGORY_MODULE } from "../modules/category"
 import { CUSTOMER_BRAND_MODULE } from "../modules/customer-brand"
-import type BrandModuleService from "../modules/brand/service"
 import type CategoryModuleService from "../modules/category/service"
 import type CustomerBrandModuleService from "../modules/customer-brand/service"
-import { createProductWithBrandWorkflow } from "../workflows/create-product-with-brand"
-import type { CreateProductWithBrandInput } from "../modules/product-extension/types"
+import { createApparelProductWorkflow } from "../workflows/create-apparel-product"
+import type { CreateApparelProductInput } from "../modules/product-extension/types"
 
 export default async function seedDemo({ container }: ExecArgs) {
   const logger = container.resolve(ContainerRegistrationKeys.LOGGER)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
 
-  const brandService: BrandModuleService = container.resolve(BRAND_MODULE)
   const categoryService: CategoryModuleService = container.resolve(CATEGORY_MODULE)
   const customerBrandService: CustomerBrandModuleService =
     container.resolve(CUSTOMER_BRAND_MODULE)
@@ -41,10 +38,10 @@ export default async function seedDemo({ container }: ExecArgs) {
   const applyResult = await runTenantApply(container, demoConfig)
   logger.info(`Tenant demo aplicado (bootstrapped: ${applyResult.bootstrapped})`)
 
-  const brands: Record<string, any> = {}
-  for (const b of demoConfig.brands) {
-    brands[b.slug] = await brandService.findBySlug(b.slug)
-  }
+  // Marca = sales channel: el apply devuelve el canal de cada marca.
+  const channelBySlug: Record<string, string> = Object.fromEntries(
+    applyResult.brands.map((b) => [b.slug, b.sales_channel_id])
+  )
 
   const [stockLocation] = await stockLocationModule.listStockLocations({
     name: demoConfig.initial.stock_location.name,
@@ -67,21 +64,21 @@ export default async function seedDemo({ container }: ExecArgs) {
       name: "Playeras",
       slug: "playeras",
       description: "Todo tipo de playeras y camisetas",
-      brand_id: null,
+      sales_channel_id: null,
       position: 0,
     },
     {
       name: "Polos",
       slug: "polos",
       description: "Polos clásicos y modernos",
-      brand_id: null,
+      sales_channel_id: null,
       position: 1,
     },
     {
       name: "Edición Limitada",
       slug: "edicion-limitada",
       description: "Productos de edición limitada",
-      brand_id: null,
+      sales_channel_id: null,
       position: 2,
     },
   ]
@@ -110,7 +107,7 @@ export default async function seedDemo({ container }: ExecArgs) {
       slug: "manga-corta",
       description: "Playeras de manga corta",
       parent_id: categories["playeras"].id,
-      brand_id: null,
+      sales_channel_id: null,
       position: 0,
     },
     {
@@ -118,7 +115,7 @@ export default async function seedDemo({ container }: ExecArgs) {
       slug: "manga-larga",
       description: "Playeras de manga larga",
       parent_id: categories["playeras"].id,
-      brand_id: null,
+      sales_channel_id: null,
       position: 1,
     },
     {
@@ -126,7 +123,7 @@ export default async function seedDemo({ container }: ExecArgs) {
       slug: "sin-mangas",
       description: "Playeras sin mangas / tank tops",
       parent_id: categories["playeras"].id,
-      brand_id: null,
+      sales_channel_id: null,
       position: 2,
     },
   ]
@@ -153,20 +150,20 @@ export default async function seedDemo({ container }: ExecArgs) {
       name: "Streetwear",
       slug: "streetwear",
       description: "Colección streetwear exclusiva",
-      brand_id: brands["urban-street"].id,
+      sales_channel_id: channelBySlug["urban-street"],
       position: 0,
     },
     {
       name: "Colaboraciones",
       slug: "colaboraciones",
       description: "Colaboraciones con artistas urbanos",
-      brand_id: brands["urban-street"].id,
+      sales_channel_id: channelBySlug["urban-street"],
       position: 1,
     },
   ]
 
   for (const catData of urbanStreetCategories) {
-    let category = await categoryService.findBySlug(catData.slug, catData.brand_id)
+    let category = await categoryService.findBySlug(catData.slug, catData.sales_channel_id)
 
     if (!category) {
       category = await categoryService.createCategories({
@@ -187,27 +184,27 @@ export default async function seedDemo({ container }: ExecArgs) {
       name: "Casual",
       slug: "casual",
       description: "Ropa casual para el día a día",
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
       position: 0,
     },
     {
       name: "Formal",
       slug: "formal",
       description: "Piezas para ocasiones formales",
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
       position: 1,
     },
     {
       name: "Esenciales",
       slug: "esenciales",
       description: "Básicos que no pueden faltar",
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
       position: 2,
     },
   ]
 
   for (const catData of classicThreadsCategories) {
-    let category = await categoryService.findBySlug(catData.slug, catData.brand_id)
+    let category = await categoryService.findBySlug(catData.slug, catData.sales_channel_id)
 
     if (!category) {
       category = await categoryService.createCategories({
@@ -227,10 +224,11 @@ export default async function seedDemo({ container }: ExecArgs) {
   // ==================
   logger.info("Seeding products...")
 
-  const productsData: CreateProductWithBrandInput[] = [
+  const productsData: CreateApparelProductInput[] = [
     // Urban Street Products
     {
-      brand_id: brands["urban-street"].id,
+      sales_channel_id: channelBySlug["urban-street"],
+      sku_prefix: "urban-street",
       title: "Camiseta Grafitti",
       description: "Camiseta de algodón premium con estampado de grafitti exclusivo. Perfecta para un look urbano y desenfadado.",
       base_price: 450,
@@ -249,7 +247,8 @@ export default async function seedDemo({ container }: ExecArgs) {
       ],
     },
     {
-      brand_id: brands["urban-street"].id,
+      sales_channel_id: channelBySlug["urban-street"],
+      sku_prefix: "urban-street",
       title: "Playera Oversized Minimal",
       description: "Playera oversized con corte relajado. Algodón 100% peinado para máxima comodidad.",
       base_price: 520,
@@ -268,7 +267,8 @@ export default async function seedDemo({ container }: ExecArgs) {
       ],
     },
     {
-      brand_id: brands["urban-street"].id,
+      sales_channel_id: channelBySlug["urban-street"],
+      sku_prefix: "urban-street",
       title: "T-Shirt Neon Dreams",
       description: "Diseño exclusivo con estampado neón que brilla en la oscuridad. Edición limitada.",
       base_price: 650,
@@ -286,7 +286,8 @@ export default async function seedDemo({ container }: ExecArgs) {
 
     // Classic Threads Products
     {
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
+      sku_prefix: "classic-threads",
       title: "Polo Ejecutivo",
       description: "Polo de corte clásico con cuello reforzado. Ideal para ocasiones semi-formales.",
       base_price: 680,
@@ -309,7 +310,8 @@ export default async function seedDemo({ container }: ExecArgs) {
       ],
     },
     {
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
+      sku_prefix: "classic-threads",
       title: "Camiseta Básica Premium",
       description: "La camiseta básica perfecta. Algodón Pima de alta calidad con acabado suave.",
       base_price: 420,
@@ -332,7 +334,8 @@ export default async function seedDemo({ container }: ExecArgs) {
       ],
     },
     {
-      brand_id: brands["classic-threads"].id,
+      sales_channel_id: channelBySlug["classic-threads"],
+      sku_prefix: "classic-threads",
       title: "Henley Casual",
       description: "Camiseta estilo Henley con botones de madera. Look casual pero sofisticado.",
       base_price: 550,
@@ -352,7 +355,7 @@ export default async function seedDemo({ container }: ExecArgs) {
     },
   ]
 
-  const workflow = createProductWithBrandWorkflow(container)
+  const workflow = createApparelProductWorkflow(container)
 
   for (const productData of productsData) {
     try {
@@ -426,7 +429,7 @@ export default async function seedDemo({ container }: ExecArgs) {
       continue
     }
 
-    const brand = brands[tc.brand_slug]
+    const salesChannelId = channelBySlug[tc.brand_slug]
 
     const authResponse = await authModule.register("emailpass", {
       body: { email: tc.email, password: TEST_CUSTOMER_PASSWORD },
@@ -447,7 +450,7 @@ export default async function seedDemo({ container }: ExecArgs) {
             email: tc.email,
             first_name: tc.first_name,
             last_name: tc.last_name,
-            metadata: { brand_id: brand.id },
+            metadata: { sales_channel_id: salesChannelId },
           },
         },
       }
@@ -455,7 +458,7 @@ export default async function seedDemo({ container }: ExecArgs) {
 
     const alreadyLinked = await customerBrandService.findByCustomerId(customer.id)
     if (!alreadyLinked) {
-      await customerBrandService.associateCustomerWithBrand(customer.id, brand.id, {
+      await customerBrandService.associateCustomerWithChannel(customer.id, salesChannelId, {
         registered_from: "api",
         language_preference: "es",
       })
@@ -469,7 +472,7 @@ export default async function seedDemo({ container }: ExecArgs) {
   // ==================
   logger.info("Seed process completed!")
   logger.info("Summary:")
-  logger.info(`  - Brands: ${Object.keys(brands).length}`)
+  logger.info(`  - Brands: ${applyResult.brands.length}`)
   logger.info(`  - Categories: ${Object.keys(categories).length}`)
   logger.info(`  - Products: ${productsData.length}`)
   logger.info(`  - Region: ${demoConfig.initial.region.name} (${demoConfig.initial.currency.toUpperCase()})`)

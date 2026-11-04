@@ -27,13 +27,13 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     return
   }
 
-  const { brand_id, parent_id, is_active, search, tree, offset, limit } = parseResult.data
+  const { sales_channel_id, parent_id, is_active, search, tree, offset, limit } = parseResult.data
 
   // Build filters
   const filters: Record<string, unknown> = {}
 
-  if (brand_id !== undefined) {
-    filters.brand_id = brand_id
+  if (sales_channel_id !== undefined) {
+    filters.sales_channel_id = sales_channel_id
   }
 
   if (parent_id !== undefined) {
@@ -46,8 +46,8 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
 
   // If tree view requested
   if (tree === "true") {
-    const categoryTree = brand_id
-      ? await categoryService.getCategoryTree(brand_id)
+    const categoryTree = sales_channel_id
+      ? await categoryService.getCategoryTree(sales_channel_id)
       : await categoryService.getCategoryTree(null)
 
     res.json({
@@ -115,10 +115,10 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     }
   }
 
-  // Validate slug uniqueness within brand scope
+  // Validate slug uniqueness within the brand's sales channel
   const slugValidation = await categoryService.validateSlugUniqueness(
     slug,
-    input.brand_id ?? null
+    input.sales_channel_id ?? null
   )
   if (!slugValidation.valid) {
     res.status(400).json({ message: slugValidation.message })
@@ -128,7 +128,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   // Get next position if not provided
   const position = input.position ?? await categoryService.getNextPosition(
     input.parent_id ?? null,
-    input.brand_id ?? null
+    input.sales_channel_id ?? null
   )
 
   // Create category
@@ -138,7 +138,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     description: input.description,
     image_url: input.image_url,
     parent_id: input.parent_id ?? null,
-    brand_id: input.brand_id ?? null,
+    sales_channel_id: input.sales_channel_id ?? null,
     position,
     is_active: input.is_active ?? true,
     metadata: input.metadata,
