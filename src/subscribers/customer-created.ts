@@ -7,9 +7,11 @@ import { BRAND_CHANNEL_FIELDS, brandFromChannel, type BrandChannel } from "../br
 /**
  * Asocia al cliente recién registrado con su marca (sales channel).
  *
- * El storefront manda el canal en `metadata.sales_channel_id` al llamar
- * `POST /store/customers`. El registro y la contraseña siguen en el flujo
- * nativo de Medusa; esto solo crea la asociación encima.
+ * El canal llega en `metadata.sales_channel_id`, que el middleware
+ * `assignCustomerBrand` fija desde la publishable key del registro
+ * (`POST /store/customers`); lo que mande el storefront se ignora. El registro
+ * y la contraseña siguen en el flujo nativo de Medusa; esto solo crea la
+ * asociación encima.
  */
 export default async function customerCreatedHandler({
   event,
