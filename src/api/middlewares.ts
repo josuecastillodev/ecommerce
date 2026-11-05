@@ -2,6 +2,7 @@ import { defineMiddlewares, validateAndTransformBody, validateAndTransformQuery 
 import { z } from "zod"
 import { requireControlPlaneToken } from "../utils/control-plane-auth"
 import {
+  assignCustomerBrand,
   validateCustomerBrand,
   validateCartLineItemBrand,
   validateCartCreateBrand,
@@ -130,6 +131,12 @@ export default defineMiddlewares({
     // =======================
     // Enforce that the authenticated customer belongs to the brand (sales
     // channel) of the publishable key on every authenticated storefront surface.
+    {
+      // Registration: the brand comes from the publishable key, never the body.
+      matcher: "/store/customers",
+      method: "POST",
+      middlewares: [assignCustomerBrand()],
+    },
     {
       matcher: "/store/customers/me",
       middlewares: [validateCustomerBrand()],

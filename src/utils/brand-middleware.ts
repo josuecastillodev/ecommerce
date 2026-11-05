@@ -31,6 +31,38 @@ export async function resolveCallerBrand(req: MedusaRequest): Promise<ChannelBra
 }
 
 /**
+ * El registro (`POST /store/customers`) toma la marca de la publishable key, no
+ * del body: sobrescribe `metadata.sales_channel_id`, que luego lee el
+ * subscriber `customer-created`. Se escribe en `body` y `validatedBody` para no
+ * depender de si la validación nativa ya corrió.
+ */
+export function assignCustomerBrand() {
+  return async (
+    req: MedusaRequest,
+    res: MedusaResponse,
+    next: MedusaNextFunction
+  ) => {
+    const callerBrand = await resolveCallerBrand(req)
+
+    if (!callerBrand) {
+      return res.status(400).json({
+        type: "invalid_request",
+        message: "Se requiere una publishable key vinculada a una marca.",
+      })
+    }
+
+    for (const body of [req.body, (req as any).validatedBody]) {
+      if (body && typeof body === "object") {
+        const target = body as Record<string, any>
+        target.metadata = { ...(target.metadata ?? {}), sales_channel_id: callerBrand.sales_channel_id }
+      }
+    }
+
+    return next()
+  }
+}
+
+/**
  * Valida que el cliente autenticado pertenezca a la marca (sales channel) de la publishable key.
  */
 export function validateCustomerBrand() {
